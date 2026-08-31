@@ -237,12 +237,13 @@ async function recordVisit(db: D1Database): Promise<void> {
 // 핸들러
 // ============================================================
 
-async function handleHomePage(db: D1Database): Promise<Response> {
+async function handleHomePage(db: D1Database, preview = false): Promise<Response> {
   try {
     const [settings, products] = await Promise.all([getSiteSettings(db), getProducts(db, false)]);
-    // 인스타 등에서 유입되는 반복 요청을 줄이기 위해 짧게 브라우저 캐시.
-    // 관리자 편집 후에도 최대 30초 stale 가능(설정 캐시 TTL 과 같은 수준).
-    return html(homePage(products, settings), "public, max-age=30");
+    // 일반 방문: 인스타 등 반복 요청을 줄이려 짧게 캐시 (편집 후 최대 30초 stale).
+    // 관리자 미리보기(?preview=1): 편집 결과가 즉시 보여야 하므로 캐시 안 함.
+    const cache = preview ? "no-store" : "public, max-age=30";
+    return html(homePage(products, settings), cache);
   } catch (error) {
     console.error(error);
     return new Response("페이지를 불러오는 중 오류가 발생했습니다.", { status: 500 });
@@ -576,7 +577,7 @@ export default {
 
     // ── 공개 홈 ──
     if (pathname === "/" && method === "GET") {
-      const res = await handleHomePage(db);
+      const res = await handleHomePage(db, url.searchParams.get("preview") === "1");
       // 방문 카운트: 봇 아님 + 오늘 첫 방문(쿠키 없음)일 때만
       if (countableVisit(request, url) && !hasFreshVisitCookie(request)) {
         ctx.waitUntil(recordVisit(db));
