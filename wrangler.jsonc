@@ -1,42 +1,35 @@
 /**
- * For more details on how to configure Wrangler, refer to:
+ * Wrangler 설정. (예전 wrangler.toml 은 삭제됨 — 설정 파일은 이 하나만 둔다)
  * https://developers.cloudflare.com/workers/wrangler/configuration/
  */
 {
-	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "multilink",
-	"main": "src/index.ts",
-	"compatibility_date": "2026-08-25",
-	"observability": {
-		"enabled": true
-	},
-	"upload_source_maps": true
-	/**
-	 * Smart Placement
-	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
-	 */
-	// "placement": {  "mode": "smart" }
-	/**
-	 * Bindings
-	 * Bindings allow your Worker to interact with resources on the Cloudflare Developer Platform, including
-	 * databases, object storage, AI inference, real-time communication and more.
-	 * https://developers.cloudflare.com/workers/runtime-apis/bindings/
-	 */
-	/**
-	 * Environment Variables
-	 * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
-	 * Note: Use secrets to store sensitive data.
-	 * https://developers.cloudflare.com/workers/configuration/secrets/
-	 */
-	// "vars": {  "MY_VARIABLE": "production_value" }
-	/**
-	 * Static Assets
-	 * https://developers.cloudflare.com/workers/static-assets/binding/
-	 */
-	// "assets": {  "directory": "./public/",  "binding": "ASSETS" }
-	/**
-	 * Service Bindings (communicate between multiple Workers)
-	 * https://developers.cloudflare.com/workers/wrangler/configuration/#service-bindings
-	 */
-	// "services": [  {   "binding": "MY_SERVICE",   "service": "my-service"  } ]
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "multilink",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-25",
+  "observability": {
+    "enabled": true
+  },
+  "upload_source_maps": true,
+
+  "d1_databases": [
+    {
+      "binding": "multilink_db",
+      "database_name": "multilink-db",
+      "database_id": "1948bd65-eb8d-45ff-9d81-9c74f7ee9222",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  /**
+   * Cloudflare Access (관리자 인증)
+   * - CF_ACCESS_TEAM_DOMAIN: 아래에 실제 팀 도메인을 넣는다. 예) "yourteam.cloudflareaccess.com"
+   *   빈 값이면 /admin·/api/* 는 500 으로 잠긴다(fail-closed).
+   * - CF_ACCESS_AUD: 민감값이므로 vars 가 아니라 secret 으로 넣는다.
+   *     npx wrangler secret put CF_ACCESS_AUD
+   * - 로컬 개발은 .dev.vars 에 ALLOW_INSECURE_ADMIN="true" (아래 .dev.vars.example 참고)
+   */
+  "vars": {
+    "CF_ACCESS_TEAM_DOMAIN": ""
+  }
 }
