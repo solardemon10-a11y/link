@@ -162,13 +162,17 @@ export function homePage(products: Product[], settings: SiteSettings): string {
     background: var(--field);
   }
   .mono-img { width: 100%; height: 100%; object-fit: cover; object-position: center; }
-  .mono-mark { font-family: Georgia, "Noto Serif KR", serif; font-size: 25px; color: var(--accent); }
+  .mono-mark { font-family: "Noto Sans KR", sans-serif; font-weight: 700; font-size: 24px; color: var(--accent); }
   .brand h1 {
-    font-family: Georgia, "Noto Serif KR", serif; font-weight: 600;
-    font-size: 25px; letter-spacing: -0.01em; margin: 0 0 7px; color: var(--heading);
+    font-family: "Noto Sans KR", sans-serif; font-weight: 700;
+    font-size: 22px; letter-spacing: -0.02em; margin: 0 0 8px; color: var(--heading);
     word-break: keep-all;
   }
-  .greeting { font-size: 14px; color: var(--muted); margin: 0; line-height: 1.6; word-break: keep-all; }
+  /* 인사말: 하단 고지 문구와 같은 글자 스타일 */
+  .greeting {
+    margin: 0; text-align: center; word-break: keep-all;
+    font-size: 13px; font-weight: 500; line-height: 1.45; color: var(--fg);
+  }
 
   .search {
     display: flex; align-items: center; gap: 10px;
@@ -187,7 +191,8 @@ export function homePage(products: Product[], settings: SiteSettings): string {
   .cols-3 .list { grid-template-columns: repeat(3, 1fr); gap: 0 14px; }
   .cols-6 .list { grid-template-columns: repeat(6, 1fr); gap: 0 10px; }
 
-  .item { padding: 24px 0; }
+  /* 다열에서 상품명 줄 수가 달라도 버튼 높이가 맞도록 flex 하단 정렬 */
+  .item { padding: 24px 0; display: flex; flex-direction: column; }
   .item[hidden] { display: none; }
   .cols-1 .item + .item { border-top: var(--divider-w) solid var(--divider); }
   .cols-2 .item, .cols-3 .item, .cols-6 .item {
@@ -230,7 +235,7 @@ export function homePage(products: Product[], settings: SiteSettings): string {
   }
   .cols-3 .item h2, .cols-6 .item h2 { font-size: 14px; margin: 10px 1px 10px; }
 
-  .buys { display: flex; gap: 8px; }
+  .buys { display: flex; gap: 8px; margin-top: auto; }
   .buy {
     flex: 1; text-align: center; text-decoration: none;
     font-size: 14px; font-weight: 700; letter-spacing: .01em;
