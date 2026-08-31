@@ -51,6 +51,7 @@ export function homePage(products: Product[], settings: SiteSettings): string {
           })
           .join("");
 
+  // 고지 문구는 화면 하단에 고정(스크롤해도 보임)
   const disclosureHtml = settings.disclosure?.trim()
     ? `<footer class="disclosure">${escapeHtml(settings.disclosure.trim())}</footer>`
     : "";
@@ -58,7 +59,7 @@ export function homePage(products: Product[], settings: SiteSettings): string {
   const bodyHtml =
     products.length === 0
       ? `<div class="empty">등록된 상품이 없습니다.</div>`
-      : `<section class="list" id="list">${itemsHtml}${disclosureHtml}</section>`;
+      : `<section class="list" id="list">${itemsHtml}</section>`;
 
   return `<!DOCTYPE html>
 <html lang="ko" data-theme="${initialTheme}">
@@ -93,14 +94,14 @@ export function homePage(products: Product[], settings: SiteSettings): string {
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --bg: #161108; --fg: #ede6d8; --heading: #ede6d8; --muted: #9a8d79;
-      --divider: #3d3220; --photo-border: #3a3121; --accent: #d8ac86;
-      --accent-fg: #201810; --chip-bg: #211b12; --field: #211b12;
+      --divider: #3d3220; --photo-border: #5a4e39; --photo-border-w: 1.5px;
+      --accent: #cf9f6e; --accent-fg: #1a1409; --chip-bg: #211b12; --field: #211b12;
     }
   }
   :root[data-theme="dark"] {
     --bg: #161108; --fg: #ede6d8; --heading: #ede6d8; --muted: #9a8d79;
-    --divider: #3d3220; --photo-border: #3a3121; --accent: #d8ac86;
-    --accent-fg: #201810; --chip-bg: #211b12; --field: #211b12;
+    --divider: #3d3220; --photo-border: #5a4e39; --photo-border-w: 1.5px;
+    --accent: #cf9f6e; --accent-fg: #1a1409; --chip-bg: #211b12; --field: #211b12;
   }
 
   * { box-sizing: border-box; }
@@ -146,7 +147,8 @@ export function homePage(products: Product[], settings: SiteSettings): string {
   .popup button[aria-checked="true"] { color: var(--accent); font-weight: 700; }
 
   /* ── 페이지 ── */
-  .page { margin: 0 auto; padding: 54px 20px 90px; }
+  /* 하단 고지 문구가 fixed 이므로 padding-bottom 으로 마지막 상품이 안 가리게 */
+  .page { margin: 0 auto; padding: 54px 20px 120px; }
   .page.cols-1 { max-width: 448px; }
   .page.cols-2 { max-width: 600px; }
   .page.cols-3 { max-width: 840px; }
@@ -154,11 +156,12 @@ export function homePage(products: Product[], settings: SiteSettings): string {
 
   .brand { text-align: center; margin-bottom: 26px; }
   .mono {
-    width: 58px; height: 58px; margin: 0 auto 14px; border-radius: 50%;
+    width: 74px; height: 74px; margin: 0 auto 14px; border-radius: 50%;
     border: 1px solid var(--accent); overflow: hidden;
     display: flex; align-items: center; justify-content: center;
+    background: var(--field);
   }
-  .mono-img { width: 100%; height: 100%; object-fit: cover; }
+  .mono-img { width: 100%; height: 100%; object-fit: cover; object-position: center; }
   .mono-mark { font-family: Georgia, "Noto Serif KR", serif; font-size: 25px; color: var(--accent); }
   .brand h1 {
     font-family: Georgia, "Noto Serif KR", serif; font-weight: 600;
@@ -193,7 +196,7 @@ export function homePage(products: Product[], settings: SiteSettings): string {
 
   .frame { position: relative; }
   .shot {
-    width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block;
+    width: 100%; aspect-ratio: 3 / 2; object-fit: cover; display: block;
     border: var(--photo-border-w) solid var(--photo-border);
     border-radius: var(--photo-radius);
     background: #fff;
@@ -203,9 +206,10 @@ export function homePage(products: Product[], settings: SiteSettings): string {
     display: flex; align-items: center; justify-content: center;
     color: var(--muted); font-size: 12px; background: var(--field);
   }
-  :root[data-theme="dark"] .shot:not(.noimg) { background: #f2ece0; }
+  /* 다크: 흰 배경 상품컷이 눈부시지 않게 살짝 낮추고 테두리를 또렷하게 */
+  :root[data-theme="dark"] .shot:not(.noimg) { filter: brightness(0.9); }
   @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) .shot:not(.noimg) { background: #f2ece0; }
+    :root:not([data-theme="light"]) .shot:not(.noimg) { filter: brightness(0.9); }
   }
   .item.match .shot { border-color: var(--accent); }
 
@@ -229,18 +233,21 @@ export function homePage(products: Product[], settings: SiteSettings): string {
   .buys { display: flex; gap: 8px; }
   .buy {
     flex: 1; text-align: center; text-decoration: none;
-    font-size: 13.5px; font-weight: 700; letter-spacing: .01em;
-    padding: 12px 8px; border-radius: 999px;
+    font-size: 14px; font-weight: 700; letter-spacing: .01em;
+    padding: 14px 8px; border-radius: 999px;
   }
   .cols-3 .buy, .cols-6 .buy { font-size: 12px; padding: 9px 4px; }
   .buy.c { background: var(--accent); color: var(--accent-fg); }
   .buy.n { color: var(--accent); border: 1px solid var(--accent); }
 
+  /* 화면 하단 고정 — 스크롤해도 항상 보임 */
   .disclosure {
-    grid-column: 1 / -1; margin-top: 8px; padding-top: 20px;
-    border-top: var(--divider-w) solid var(--divider);
-    font-size: 11.5px; line-height: 1.7; color: var(--muted); text-align: center;
-    word-break: keep-all;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    background: var(--bg); border-top: var(--divider-w) solid var(--divider);
+    box-shadow: 0 -6px 16px -10px rgba(20, 14, 6, .3);
+    padding: 13px 18px calc(13px + env(safe-area-inset-bottom, 0px));
+    font-size: 13px; font-weight: 500; line-height: 1.45;
+    color: var(--fg); text-align: center; word-break: keep-all;
   }
 
   .empty { padding: 80px 20px; text-align: center; color: var(--muted); }
@@ -292,6 +299,8 @@ export function homePage(products: Product[], settings: SiteSettings): string {
 
     ${bodyHtml}
   </main>
+
+  ${disclosureHtml}
 
 <script>
 (function () {
