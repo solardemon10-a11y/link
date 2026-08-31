@@ -65,23 +65,40 @@ function countableHit(request: Request): boolean {
   return !BOT_RE.test(ua);
 }
 
-/** 방문 집계 대상 요청인지 (봇 아님 + preview/deploy_check 아님) */
+/** 실제 페이지 이동(top-level navigation)인지 — 서브리소스·fetch·프리페치 제외 */
+function isRealNavigation(request: Request): boolean {
+  const mode = request.headers.get("Sec-Fetch-Mode");
+  if (mode && mode !== "navigate") return false;
+  const dest = request.headers.get("Sec-Fetch-Dest");
+  if (dest && dest !== "document" && dest !== "empty") return false;
+  return true;
+}
+
+/** 방문 집계 대상 요청인지 (봇 아님 + 실제 이동 + preview/deploy_check 아님) */
 function countableVisit(request: Request, url: URL): boolean {
   if (url.searchParams.get("preview") === "1") return false;
   if (url.searchParams.get("deploy_check") === "1") return false;
-  return countableHit(request);
+  return countableHit(request) && isRealNavigation(request);
 }
 
-/** 오늘(KST) 이미 방문 카운트된 브라우저인지 — 쿠키로 하루 1회 중복 제거 */
-function hasFreshVisitCookie(request: Request): boolean {
-  const cookie = request.headers.get("Cookie") || "";
-  const m = cookie.match(/(?:^|;\s*)mlv=([^;]+)/);
-  return m?.[1] === kstDate();
-}
-
-function visitCookie(url: URL): string {
-  const secure = url.protocol === "https:" ? "; Secure" : "";
-  return `mlv=${kstDate()}; Path=/; Max-Age=86400; SameSite=Lax; HttpOnly${secure}`;
+/**
+ * 방문 중복 제거 키 = 날짜(KST) + IP+UA 해시.
+ * 원문 IP 는 저장 안 함(SHA-256 앞부분만). 인앱 브라우저가 쿠키를 안 물어도,
+ * 페이지를 두 번 로드해도 같은 키라 하루 1회만 센다.
+ */
+async function visitKey(request: Request): Promise<string> {
+  const ip =
+    request.headers.get("CF-Connecting-IP") ||
+    request.headers.get("X-Forwarded-For") ||
+    "0";
+  const ua = request.headers.get("User-Agent") || "";
+  const day = kstDate();
+  const bytes = new TextEncoder().encode(`${day}|${ip}|${ua}`);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const hex = [...new Uint8Array(digest)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return `${day}:${hex.slice(0, 24)}`;
 }
 
 // ============================================================
@@ -221,16 +238,27 @@ async function getVisitStats(db: D1Database): Promise<VisitStats> {
   return { total: total?.total || 0, today: todayRow?.today || 0 };
 }
 
-/** 오늘 날짜 행의 visit_count 를 +1. ctx.waitUntil 로만 호출한다. */
-async function recordVisit(db: D1Database): Promise<void> {
-  await db
-    .prepare(
-      `INSERT INTO site_visits (visit_date, visit_count)
-       VALUES (?, 1)
-       ON CONFLICT(visit_date) DO UPDATE SET visit_count = visit_count + 1`
-    )
-    .bind(kstDate())
+/**
+ * 방문 기록. 같은 키(날짜+기기)가 이미 있으면 아무것도 안 한다.
+ * ctx.waitUntil 로만 호출한다.
+ */
+async function recordVisit(db: D1Database, key: string): Promise<void> {
+  const ins = await db
+    .prepare(`INSERT OR IGNORE INTO visit_keys (k) VALUES (?)`)
+    .bind(key)
     .run();
+
+  // 새로 들어간 경우에만(= 오늘 이 기기의 첫 방문) 카운트 +1
+  if (ins.meta.changes === 1) {
+    await db
+      .prepare(
+        `INSERT INTO site_visits (visit_date, visit_count)
+         VALUES (?, 1)
+         ON CONFLICT(visit_date) DO UPDATE SET visit_count = visit_count + 1`
+      )
+      .bind(kstDate())
+      .run();
+  }
 }
 
 // ============================================================
@@ -577,11 +605,11 @@ export default {
 
     // ── 공개 홈 ──
     if (pathname === "/" && method === "GET") {
-      const res = await handleHomePage(db, url.searchParams.get("preview") === "1");
-      // 방문 카운트: 봇 아님 + 오늘 첫 방문(쿠키 없음)일 때만
-      if (countableVisit(request, url) && !hasFreshVisitCookie(request)) {
-        ctx.waitUntil(recordVisit(db));
-        res.headers.append("Set-Cookie", visitCookie(url));
+      const preview = url.searchParams.get("preview") === "1";
+      const res = await handleHomePage(db, preview);
+      // 방문 카운트: 봇/프리페치 아님 + 실제 이동. 하루 1회 중복 제거는 recordVisit 안에서.
+      if (!preview && countableVisit(request, url)) {
+        ctx.waitUntil(visitKey(request).then((k) => recordVisit(db, k)));
       }
       return res;
     }
