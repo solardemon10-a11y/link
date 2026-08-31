@@ -609,7 +609,12 @@ export default {
       const res = await handleHomePage(db, preview);
       // 방문 카운트: 봇/프리페치 아님 + 실제 이동. 하루 1회 중복 제거는 recordVisit 안에서.
       if (!preview && countableVisit(request, url)) {
-        ctx.waitUntil(visitKey(request).then((k) => recordVisit(db, k)));
+        // 방문 기록 실패가 페이지나 로그에 영향 주지 않게 조용히 삼킨다
+        ctx.waitUntil(
+          visitKey(request)
+            .then((k) => recordVisit(db, k))
+            .catch(() => {})
+        );
       }
       return res;
     }
