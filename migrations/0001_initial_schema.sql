@@ -10,8 +10,9 @@
 --   → 아직 코드에 구현이 없는 죽은 스키마였다. 실제로 만들 때 다음 마이그레이션으로 추가한다.
 -- 제외한 것: products.is_pinned / product_links.is_pinned (고정/핀 기능)
 --   → half-baked 라서 걷어냈다. 재도입 시 마이그레이션으로.
-
-PRAGMA foreign_keys = ON;
+--
+-- 참고: PRAGMA foreign_keys 는 넣지 않는다. D1 은 FK 기본 ON 이고,
+--       마이그레이션 안 PRAGMA 는 원격 적용 시 API 에러를 낼 수 있다.
 
 -- ============================================================
 -- 상품
