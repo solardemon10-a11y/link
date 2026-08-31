@@ -1,60 +1,102 @@
-// index.ts - 개선된 전체 버전 (요청사항 반영)
+// index.ts - Worker 엔트리 · 라우팅 · D1 접근 · 핸들러
 
 import { homePage } from "./pages/home";
 import { adminPage } from "./pages/admin";
 import { requireAdmin } from "./auth";
 import type { Env } from "./env";
-
-type SiteSettings = {
-  site_name: string;
-  greeting: string | null; // [추가] 대표 인사말
-  representative_image_url: string | null;
-  link_columns: number;
-  theme: "light" | "dark";
-};
-
-type Product = {
-  id: number;
-  product_number: string;
-  name: string;
-  image_url: string | null;
-  is_active: number;
-  coupang_url: string | null;
-  coupang_active: number;
-  naver_url: string | null;
-  naver_active: number;
-};
-
-type AdminProduct = Product & {
-  coupang_clicks: number;
-  naver_clicks: number;
-  total_clicks: number;
-};
+import type { Platform, Product, AdminProduct, SiteSettings, VisitStats } from "./types";
 
 // ============================================================
-// 캐시 관련 변수
+// 설정 캐시 (isolate 로컬. 저장 시 무효화, 최대 CACHE_TTL 만큼 stale 가능)
 // ============================================================
 let cachedSettings: SiteSettings | null = null;
 let settingsCacheTime = 0;
-const CACHE_TTL = 60 * 1000; // 1분
+const CACHE_TTL = 60 * 1000;
+
+const HTML = "text/html; charset=UTF-8";
 
 // ============================================================
-// 유틸리티 함수
+// 공통 유틸
 // ============================================================
 
+/** 한국(KST, UTC+9) 기준 YYYY-MM-DD */
+function kstDate(): string {
+  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().split("T")[0];
+}
+
+function html(body: string, cacheControl: string): Response {
+  return new Response(body, {
+    headers: {
+      "content-type": HTML,
+      "cache-control": cacheControl,
+      "x-content-type-options": "nosniff",
+    },
+  });
+}
+
+function validatePlatform(platform: string): platform is Platform {
+  return platform === "coupang" || platform === "naver";
+}
+
+/** D1 UNIQUE 제약 위반 여부 (메시지 문자열로만 판별 가능) */
+function isUniqueViolation(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return /UNIQUE constraint failed/i.test(msg);
+}
+
+// ── 봇/프리페치 필터 ─────────────────────────────────────────
 /**
- * 사이트 설정 조회 (캐싱 적용) - [수정] greeting 추가
+ * 링크 미리보기 크롤러(카톡·슬랙·페북 등)·검색봇·브라우저 프리페치를
+ * 방문/클릭 집계에서 제외한다. 완벽하진 않지만 가장 큰 왜곡 원인들을 거른다.
  */
+function countableHit(request: Request): boolean {
+  const purpose = (
+    request.headers.get("Sec-Purpose") ||
+    request.headers.get("Purpose") ||
+    request.headers.get("X-Purpose") ||
+    ""
+  ).toLowerCase();
+  if (purpose.includes("prefetch") || purpose.includes("preview")) return false;
+
+  const ua = (request.headers.get("User-Agent") || "").toLowerCase();
+  if (!ua) return false; // UA 없는 요청은 대부분 봇
+  const BOT_RE =
+    /bot|crawler|spider|slurp|facebookexternalhit|kakaotalk-scrap|kakaostory-og|slackbot|twitterbot|telegrambot|discordbot|whatsapp|line-poker|embedly|preview|pinterest|petalbot|bytespider|headlesschrome|python-requests|axios|curl|wget|go-http/i;
+  return !BOT_RE.test(ua);
+}
+
+/** 방문 집계 대상 요청인지 (봇 아님 + preview/deploy_check 아님) */
+function countableVisit(request: Request, url: URL): boolean {
+  if (url.searchParams.get("preview") === "1") return false;
+  if (url.searchParams.get("deploy_check") === "1") return false;
+  return countableHit(request);
+}
+
+/** 오늘(KST) 이미 방문 카운트된 브라우저인지 — 쿠키로 하루 1회 중복 제거 */
+function hasFreshVisitCookie(request: Request): boolean {
+  const cookie = request.headers.get("Cookie") || "";
+  const m = cookie.match(/(?:^|;\s*)mlv=([^;]+)/);
+  return m?.[1] === kstDate();
+}
+
+function visitCookie(url: URL): string {
+  const secure = url.protocol === "https:" ? "; Secure" : "";
+  return `mlv=${kstDate()}; Path=/; Max-Age=86400; SameSite=Lax; HttpOnly${secure}`;
+}
+
+// ============================================================
+// D1 조회
+// ============================================================
+
 async function getSiteSettings(db: D1Database): Promise<SiteSettings> {
   const now = Date.now();
-
   if (cachedSettings && now - settingsCacheTime < CACHE_TTL) {
     return cachedSettings;
   }
 
   let settings = await db
     .prepare(
-      `SELECT site_name, greeting, representative_image_url, link_columns, theme 
+      `SELECT site_name, greeting, representative_image_url, link_columns, theme
        FROM site_settings WHERE id = 1`
     )
     .first<SiteSettings>();
@@ -66,7 +108,6 @@ async function getSiteSettings(db: D1Database): Promise<SiteSettings> {
          VALUES (1, '멀티링크', '', NULL, 2, 'light')`
       )
       .run();
-
     settings = {
       site_name: "멀티링크",
       greeting: "",
@@ -81,12 +122,9 @@ async function getSiteSettings(db: D1Database): Promise<SiteSettings> {
   return settings;
 }
 
-/**
- * 상품 목록 조회 - [수정] product_number, 검색 추가
- */
-async function getProducts(db: D1Database, includeInactive = false, searchTerm = ""): Promise<Product[]> {
-  const where = includeInactive ? "WHERE 1=1" : "WHERE p.is_active = 1";
-  const searchWhere = searchTerm ? ` AND p.product_number LIKE ?` : "";
+/** 공개 페이지용 상품 목록 (검색은 클라이언트에서 처리하므로 여기선 안 받는다) */
+async function getProducts(db: D1Database, includeInactive = false): Promise<Product[]> {
+  const where = includeInactive ? "" : "WHERE p.is_active = 1";
 
   const result = await db
     .prepare(
@@ -103,12 +141,11 @@ async function getProducts(db: D1Database, includeInactive = false, searchTerm =
         MAX(CASE WHEN pl.platform = 'naver' THEN pl.is_active END) AS naver_active
       FROM products p
       LEFT JOIN product_links pl ON p.id = pl.product_id
-      ${where} ${searchWhere}
+      ${where}
       GROUP BY p.id
       ORDER BY p.id DESC
       `
     )
-    .bind(...(searchTerm ? [`%${searchTerm}%`] : []))
     .all<Product>();
 
   return result.results.map((product) => ({
@@ -118,10 +155,10 @@ async function getProducts(db: D1Database, includeInactive = false, searchTerm =
   }));
 }
 
-/**
- * 관리자용 상품 목록 조회 (클릭 수 포함) - [수정] product_number 추가
- */
+/** 관리자용 상품 목록 (전체/오늘 클릭 수 포함) */
 async function getAdminProducts(db: D1Database): Promise<AdminProduct[]> {
+  const today = kstDate();
+
   const result = await db
     .prepare(
       `
@@ -135,26 +172,29 @@ async function getAdminProducts(db: D1Database): Promise<AdminProduct[]> {
         MAX(CASE WHEN pl.platform = 'coupang' THEN pl.is_active END) AS coupang_active,
         MAX(CASE WHEN pl.platform = 'naver' THEN pl.url END) AS naver_url,
         MAX(CASE WHEN pl.platform = 'naver' THEN pl.is_active END) AS naver_active,
-        COALESCE(cc.coupang_clicks, 0) AS coupang_clicks,
-        COALESCE(cc.naver_clicks, 0) AS naver_clicks,
-        COALESCE(cc.total_clicks, 0) AS total_clicks
+        COALESCE(cc.coupang_clicks, 0)        AS coupang_clicks,
+        COALESCE(cc.naver_clicks, 0)          AS naver_clicks,
+        COALESCE(cc.total_clicks, 0)          AS total_clicks,
+        COALESCE(cc.coupang_clicks_today, 0)  AS coupang_clicks_today,
+        COALESCE(cc.naver_clicks_today, 0)    AS naver_clicks_today
       FROM products p
-      LEFT JOIN product_links pl
-        ON p.id = pl.product_id
+      LEFT JOIN product_links pl ON p.id = pl.product_id
       LEFT JOIN (
         SELECT
           product_id,
           SUM(CASE WHEN platform = 'coupang' THEN 1 ELSE 0 END) AS coupang_clicks,
-          SUM(CASE WHEN platform = 'naver' THEN 1 ELSE 0 END) AS naver_clicks,
-          COUNT(*) AS total_clicks
+          SUM(CASE WHEN platform = 'naver'   THEN 1 ELSE 0 END) AS naver_clicks,
+          COUNT(*)                                              AS total_clicks,
+          SUM(CASE WHEN platform = 'coupang' AND date(created_at, '+9 hours') = ? THEN 1 ELSE 0 END) AS coupang_clicks_today,
+          SUM(CASE WHEN platform = 'naver'   AND date(created_at, '+9 hours') = ? THEN 1 ELSE 0 END) AS naver_clicks_today
         FROM link_clicks
         GROUP BY product_id
-      ) cc
-        ON p.id = cc.product_id
+      ) cc ON p.id = cc.product_id
       GROUP BY p.id
       ORDER BY p.id DESC
       `
     )
+    .bind(today, today)
     .all<AdminProduct>();
 
   return result.results.map((product) => ({
@@ -164,42 +204,50 @@ async function getAdminProducts(db: D1Database): Promise<AdminProduct[]> {
     coupang_clicks: Number(product.coupang_clicks || 0),
     naver_clicks: Number(product.naver_clicks || 0),
     total_clicks: Number(product.total_clicks || 0),
+    coupang_clicks_today: Number(product.coupang_clicks_today || 0),
+    naver_clicks_today: Number(product.naver_clicks_today || 0),
   }));
 }
 
-/**
- * 상품 ID 검증
- */
-function parseProductId(pathname: string): { id: number | null; error?: Response } {
-  const parts = pathname.split("/");
-  const idStr = parts[3];
-
-  if (!idStr) {
-    return { id: null, error: Response.json({ error: "상품 ID가 필요합니다." }, { status: 400 }) };
-  }
-
-  const id = Number(idStr);
-  if (!Number.isInteger(id) || id <= 0) {
-    return { id: null, error: Response.json({ error: "잘못된 상품 ID입니다." }, { status: 400 }) };
-  }
-
-  return { id };
+async function getVisitStats(db: D1Database): Promise<VisitStats> {
+  const [total, todayRow] = await Promise.all([
+    db.prepare(`SELECT SUM(visit_count) as total FROM site_visits`).first<{ total: number }>(),
+    db
+      .prepare(`SELECT visit_count as today FROM site_visits WHERE visit_date = ?`)
+      .bind(kstDate())
+      .first<{ today: number }>(),
+  ]);
+  return { total: total?.total || 0, today: todayRow?.today || 0 };
 }
 
-/**
- * 플랫폼 검증
- */
-function validatePlatform(platform: string): platform is "coupang" | "naver" {
-  return platform === "coupang" || platform === "naver";
+/** 오늘 날짜 행의 visit_count 를 +1. ctx.waitUntil 로만 호출한다. */
+async function recordVisit(db: D1Database): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO site_visits (visit_date, visit_count)
+       VALUES (?, 1)
+       ON CONFLICT(visit_date) DO UPDATE SET visit_count = visit_count + 1`
+    )
+    .bind(kstDate())
+    .run();
 }
 
 // ============================================================
-// 핸들러 함수들
+// 핸들러
 // ============================================================
 
-/**
- * 관리자 페이지 핸들러 - [수정] 방문자 수 추가
- */
+async function handleHomePage(db: D1Database): Promise<Response> {
+  try {
+    const [settings, products] = await Promise.all([getSiteSettings(db), getProducts(db, false)]);
+    // 인스타 등에서 유입되는 반복 요청을 줄이기 위해 짧게 브라우저 캐시.
+    // 관리자 편집 후에도 최대 30초 stale 가능(설정 캐시 TTL 과 같은 수준).
+    return html(homePage(products, settings), "public, max-age=30");
+  } catch (error) {
+    console.error(error);
+    return new Response("페이지를 불러오는 중 오류가 발생했습니다.", { status: 500 });
+  }
+}
+
 async function handleAdminPage(db: D1Database): Promise<Response> {
   try {
     const [settings, products, stats] = await Promise.all([
@@ -207,19 +255,13 @@ async function handleAdminPage(db: D1Database): Promise<Response> {
       getAdminProducts(db),
       getVisitStats(db),
     ]);
-
-    return new Response(adminPage(products, settings, stats), {
-      headers: { "content-type": "text/html; charset=UTF-8" },
-    });
+    return html(adminPage(products, settings, stats), "private, no-store");
   } catch (error) {
     console.error(error);
     return new Response("관리자 페이지를 불러오는 중 오류가 발생했습니다.", { status: 500 });
   }
 }
 
-/**
- * 사이트 설정 저장 핸들러 - [수정] greeting 추가
- */
 async function handleSettingsUpdate(request: Request, db: D1Database): Promise<Response> {
   try {
     const body = (await request.json()) as {
@@ -232,7 +274,7 @@ async function handleSettingsUpdate(request: Request, db: D1Database): Promise<R
 
     const siteName = body.site_name?.trim() || "멀티링크";
     const greeting = body.greeting?.trim() || "";
-    const representativeImage = body.representative_image_url?.trim() || ""; // [중요] URL 값 받기
+    const representativeImage = body.representative_image_url?.trim() || "";
     const linkColumns = [1, 2, 3, 6].includes(body.link_columns ?? 0) ? body.link_columns! : 2;
     const theme = body.theme === "dark" ? "dark" : "light";
 
@@ -254,7 +296,6 @@ async function handleSettingsUpdate(request: Request, db: D1Database): Promise<R
       .run();
 
     cachedSettings = null;
-
     return Response.json({ success: true });
   } catch (error) {
     console.error(error);
@@ -262,9 +303,6 @@ async function handleSettingsUpdate(request: Request, db: D1Database): Promise<R
   }
 }
 
-/**
- * 상품 등록 핸들러 - [수정] product_number 필수 검증 및 등록
- */
 async function handleProductCreate(request: Request, db: D1Database): Promise<Response> {
   try {
     const body = (await request.json()) as {
@@ -286,26 +324,9 @@ async function handleProductCreate(request: Request, db: D1Database): Promise<Re
       .bind(body.product_number.trim(), body.name.trim(), body.image?.trim() || null)
       .first<{ id: number }>();
 
-    if (!product) {
-      throw new Error("상품 생성에 실패했습니다.");
-    }
+    if (!product) throw new Error("상품 생성에 실패했습니다.");
 
-    // 링크 등록
-    const links = [
-      { platform: "coupang" as const, url: body.coupang?.trim() },
-      { platform: "naver" as const, url: body.naver?.trim() },
-    ];
-
-    for (const link of links) {
-      if (link.url) {
-        await db
-          .prepare(
-            `INSERT INTO product_links (product_id, platform, url, is_active) VALUES (?, ?, ?, 1)`
-          )
-          .bind(product.id, link.platform, link.url)
-          .run();
-      }
-    }
+    await upsertLinks(db, product.id, body, /* deleteEmpty */ false);
 
     return Response.json({ success: true, id: product.id });
   } catch (error) {
@@ -317,15 +338,6 @@ async function handleProductCreate(request: Request, db: D1Database): Promise<Re
   }
 }
 
-/** D1 의 UNIQUE 제약 위반인지 (메시지 문자열로만 판별 가능) */
-function isUniqueViolation(error: unknown): boolean {
-  const msg = error instanceof Error ? error.message : String(error);
-  return /UNIQUE constraint failed/i.test(msg);
-}
-
-/**
- * 상품 수정 핸들러 - [수정] product_number 수정
- */
 async function handleProductUpdate(request: Request, db: D1Database, productId: number): Promise<Response> {
   try {
     const body = (await request.json()) as {
@@ -340,17 +352,14 @@ async function handleProductUpdate(request: Request, db: D1Database, productId: 
       return Response.json({ error: "제품번호와 상품명을 입력해주세요." }, { status: 400 });
     }
 
-    // 상품 존재 여부 확인
     const existing = await db
       .prepare(`SELECT id FROM products WHERE id = ?`)
       .bind(productId)
       .first<{ id: number }>();
-
     if (!existing) {
       return Response.json({ error: "상품을 찾을 수 없습니다." }, { status: 404 });
     }
 
-    // 상품 정보 업데이트
     await db
       .prepare(
         `UPDATE products SET product_number = ?, name = ?, image_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
@@ -358,28 +367,7 @@ async function handleProductUpdate(request: Request, db: D1Database, productId: 
       .bind(body.product_number.trim(), body.name.trim(), body.image?.trim() || null, productId)
       .run();
 
-    // 링크 업데이트
-    const links = [
-      { platform: "coupang" as const, url: body.coupang?.trim() },
-      { platform: "naver" as const, url: body.naver?.trim() },
-    ];
-
-    for (const link of links) {
-      if (link.url) {
-        await db
-          .prepare(
-            `INSERT INTO product_links (product_id, platform, url, is_active) VALUES (?, ?, ?, 1)
-             ON CONFLICT(product_id, platform) DO UPDATE SET url = excluded.url, is_active = 1, updated_at = CURRENT_TIMESTAMP`
-          )
-          .bind(productId, link.platform, link.url)
-          .run();
-      } else {
-        await db
-          .prepare(`DELETE FROM product_links WHERE product_id = ? AND platform = ?`)
-          .bind(productId, link.platform)
-          .run();
-      }
-    }
+    await upsertLinks(db, productId, body, /* deleteEmpty */ true);
 
     return Response.json({ success: true });
   } catch (error) {
@@ -391,19 +379,43 @@ async function handleProductUpdate(request: Request, db: D1Database, productId: 
   }
 }
 
-/**
- * 상품 상태 변경 핸들러 (ON/OFF)
- */
+/** 쿠팡/네이버 링크를 upsert. deleteEmpty=true 면 빈 값은 링크를 삭제한다(수정 흐름). */
+async function upsertLinks(
+  db: D1Database,
+  productId: number,
+  body: { coupang?: string; naver?: string },
+  deleteEmpty: boolean
+): Promise<void> {
+  const links: { platform: Platform; url: string | undefined }[] = [
+    { platform: "coupang", url: body.coupang?.trim() },
+    { platform: "naver", url: body.naver?.trim() },
+  ];
+
+  for (const link of links) {
+    if (link.url) {
+      await db
+        .prepare(
+          `INSERT INTO product_links (product_id, platform, url, is_active) VALUES (?, ?, ?, 1)
+           ON CONFLICT(product_id, platform) DO UPDATE SET url = excluded.url, is_active = 1, updated_at = CURRENT_TIMESTAMP`
+        )
+        .bind(productId, link.platform, link.url)
+        .run();
+    } else if (deleteEmpty) {
+      await db
+        .prepare(`DELETE FROM product_links WHERE product_id = ? AND platform = ?`)
+        .bind(productId, link.platform)
+        .run();
+    }
+  }
+}
+
 async function handleProductStatus(request: Request, db: D1Database, productId: number): Promise<Response> {
   try {
     const body = (await request.json()) as { is_active?: boolean };
-    const isActive = body.is_active ? 1 : 0;
-
     await db
       .prepare(`UPDATE products SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
-      .bind(isActive, productId)
+      .bind(body.is_active ? 1 : 0, productId)
       .run();
-
     return Response.json({ success: true });
   } catch (error) {
     console.error(error);
@@ -411,9 +423,6 @@ async function handleProductStatus(request: Request, db: D1Database, productId: 
   }
 }
 
-/**
- * 링크 상태 변경 핸들러 (ON/OFF)
- */
 async function handleLinkStatus(
   request: Request,
   db: D1Database,
@@ -423,16 +432,12 @@ async function handleLinkStatus(
   if (!validatePlatform(platform)) {
     return Response.json({ error: "잘못된 플랫폼입니다." }, { status: 400 });
   }
-
   try {
     const body = (await request.json()) as { is_active?: boolean };
-    const isActive = body.is_active ? 1 : 0;
-
     await db
       .prepare(`UPDATE product_links SET is_active = ? WHERE product_id = ? AND platform = ?`)
-      .bind(isActive, productId, platform)
+      .bind(body.is_active ? 1 : 0, productId, platform)
       .run();
-
     return Response.json({ success: true });
   } catch (error) {
     console.error(error);
@@ -440,9 +445,6 @@ async function handleLinkStatus(
   }
 }
 
-/**
- * 상품 삭제 핸들러
- */
 async function handleProductDelete(db: D1Database, productId: number): Promise<Response> {
   try {
     await db.prepare(`DELETE FROM products WHERE id = ?`).bind(productId).run();
@@ -454,25 +456,18 @@ async function handleProductDelete(db: D1Database, productId: number): Promise<R
 }
 
 /**
- * 링크 리다이렉트 핸들러
- * - 클릭 기록은 응답을 막지 않도록 ctx.waitUntil 로 백그라운드 처리
- * - 봇/프리페치(카톡·슬랙 언펄링 등)는 클릭으로 세지 않음
- * - 저장된 URL 이 http(s) 가 아니면 리다이렉트하지 않고 404 (Response.redirect 예외 방지)
+ * 링크 리다이렉트.
+ * - 클릭 기록은 ctx.waitUntil 로 백그라운드 처리 (응답을 막지 않음)
+ * - 봇/프리페치는 클릭으로 세지 않음
+ * - 저장된 URL 이 http(s) 가 아니면 404 (Response.redirect 예외 방지)
  */
 async function handleRedirect(
   db: D1Database,
-  pathname: string,
+  productId: number,
+  platform: Platform,
   ctx: ExecutionContext,
   request: Request
 ): Promise<Response> {
-  const parts = pathname.split("/");
-  const productId = Number(parts[2]);
-  const platform = parts[3];
-
-  if (!Number.isInteger(productId) || productId <= 0 || !validatePlatform(platform)) {
-    return new Response("Not Found", { status: 404 });
-  }
-
   const link = await db
     .prepare(
       `
@@ -498,167 +493,100 @@ async function handleRedirect(
     );
   }
 
-  return Response.redirect(link.url, 302);
-}
-
-/**
- * 메인 페이지 핸들러 - [수정] 검색어 추가
- */
-async function handleHomePage(db: D1Database, searchTerm: string): Promise<Response> {
-  try {
-    const [settings, products] = await Promise.all([
-      getSiteSettings(db),
-      getProducts(db, false, searchTerm),
-    ]);
-
-    return new Response(homePage(products, settings), {
-      headers: { "content-type": "text/html; charset=UTF-8" },
-    });
-  } catch (error) {
-    console.error(error);
-    return new Response("페이지를 불러오는 중 오류가 발생했습니다.", { status: 500 });
-  }
-}
-
-/** 한국(KST, UTC+9) 기준 YYYY-MM-DD */
-function kstDate(): string {
-  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().split("T")[0];
-}
-
-/**
- * 링크 미리보기 크롤러(카톡·슬랙·페북 등)·검색봇·브라우저 프리페치를
- * 방문/클릭 집계에서 제외한다. 완벽하진 않지만 가장 큰 왜곡 원인들을 걸러낸다.
- */
-function countableHit(request: Request): boolean {
-  const purpose = (
-    request.headers.get("Sec-Purpose") ||
-    request.headers.get("Purpose") ||
-    request.headers.get("X-Purpose") ||
-    ""
-  ).toLowerCase();
-  if (purpose.includes("prefetch") || purpose.includes("preview")) return false;
-
-  const ua = (request.headers.get("User-Agent") || "").toLowerCase();
-  if (!ua) return false; // UA 없는 요청은 대부분 봇
-  const BOT_RE =
-    /bot|crawler|spider|slurp|facebookexternalhit|kakaotalk-scrap|kakaostory-og|slackbot|twitterbot|telegrambot|discordbot|whatsapp|line-poker|embedly|preview|pinterest|petalbot|bytespider|headlesschrome|python-requests|axios|curl|wget|go-http/i;
-  return !BOT_RE.test(ua);
-}
-
-/** 방문 집계에 셀 요청인지 (홈 GET + 봇 아님 + preview/deploy_check 아님) */
-function countableVisit(request: Request, url: URL): boolean {
-  if (url.searchParams.get("preview") === "1") return false;
-  if (url.searchParams.get("deploy_check") === "1") return false;
-  return countableHit(request);
-}
-
-/** 사이트 방문 수 조회 (총 / 오늘) */
-async function getVisitStats(db: D1Database): Promise<{ total: number; today: number }> {
-  const [total, todayCount] = await Promise.all([
-    db.prepare(`SELECT SUM(visit_count) as total FROM site_visits`).first<{ total: number }>(),
-    db
-      .prepare(`SELECT visit_count as today FROM site_visits WHERE visit_date = ?`)
-      .bind(kstDate())
-      .first<{ today: number }>(),
-  ]);
-
-  return {
-    total: total?.total || 0,
-    today: todayCount?.today || 0,
-  };
-}
-
-/** 오늘 날짜 행의 visit_count 를 +1 (없으면 생성). ctx.waitUntil 로만 호출한다. */
-async function recordVisit(db: D1Database): Promise<void> {
-  await db
-    .prepare(
-      `INSERT INTO site_visits (visit_date, visit_count)
-       VALUES (?, 1)
-       ON CONFLICT(visit_date) DO UPDATE SET visit_count = visit_count + 1`
-    )
-    .bind(kstDate())
-    .run();
+  return new Response(null, {
+    status: 302,
+    headers: { location: link.url, "cache-control": "private, no-store" },
+  });
 }
 
 // ============================================================
-// 메인 Worker
+// 라우터
+// ============================================================
+
+type RouteCtx = {
+  request: Request;
+  ctx: ExecutionContext;
+  db: D1Database;
+  params: string[]; // 정규식 캡처 그룹
+};
+
+type Route = {
+  method: string;
+  pattern: RegExp;
+  handler: (c: RouteCtx) => Response | Promise<Response>;
+};
+
+// 구체적인 패턴을 먼저. 첫 매치가 이긴다.
+const ROUTES: Route[] = [
+  { method: "GET", pattern: /^\/admin$/, handler: (c) => handleAdminPage(c.db) },
+
+  { method: "PUT", pattern: /^\/api\/settings$/, handler: (c) => handleSettingsUpdate(c.request, c.db) },
+
+  { method: "POST", pattern: /^\/api\/products$/, handler: (c) => handleProductCreate(c.request, c.db) },
+
+  {
+    method: "PUT",
+    pattern: /^\/api\/products\/(\d+)\/links\/(coupang|naver)\/status$/,
+    handler: (c) => handleLinkStatus(c.request, c.db, Number(c.params[0]), c.params[1]),
+  },
+  {
+    method: "PUT",
+    pattern: /^\/api\/products\/(\d+)\/status$/,
+    handler: (c) => handleProductStatus(c.request, c.db, Number(c.params[0])),
+  },
+  {
+    method: "PUT",
+    pattern: /^\/api\/products\/(\d+)$/,
+    handler: (c) => handleProductUpdate(c.request, c.db, Number(c.params[0])),
+  },
+  {
+    method: "DELETE",
+    pattern: /^\/api\/products\/(\d+)$/,
+    handler: (c) => handleProductDelete(c.db, Number(c.params[0])),
+  },
+
+  {
+    method: "GET",
+    pattern: /^\/go\/(\d+)\/(coupang|naver)$/,
+    handler: (c) =>
+      handleRedirect(c.db, Number(c.params[0]), c.params[1] as Platform, c.ctx, c.request),
+  },
+];
+
+// ============================================================
+// 엔트리
 // ============================================================
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const db = env.multilink_db;
-    const pathname = url.pathname;
+    const { pathname } = url;
     const method = request.method;
 
-    // ========== 관리자 인증 (Cloudflare Access) ==========
-    // /admin 과 모든 /api/* 는 인증을 통과해야 한다.
+    // ── 관리자 인증 (Cloudflare Access): /admin, /api/* ──
     if (pathname === "/admin" || pathname.startsWith("/api/")) {
       const guard = await requireAdmin(request, env);
       if (!guard.ok) return guard.response;
     }
 
-    // ========== 방문 기록 (응답을 막지 않음) ==========
-    if (pathname === "/" && method === "GET" && countableVisit(request, url)) {
-      ctx.waitUntil(recordVisit(db));
-    }
-
-    // ========== 관리자 페이지 ==========
-    if (pathname === "/admin" && method === "GET") {
-      return handleAdminPage(db);
-    }
-
-    // ========== 사이트 설정 ==========
-    if (pathname === "/api/settings" && method === "PUT") {
-      return handleSettingsUpdate(request, db);
-    }
-
-    // ========== 상품 API ==========
-    // POST /api/products - 상품 등록
-    if (pathname === "/api/products" && method === "POST") {
-      return handleProductCreate(request, db);
-    }
-
-    // DELETE /api/products/:id - 상품 삭제
-    if (pathname.startsWith("/api/products/") && method === "DELETE") {
-      const { id, error } = parseProductId(pathname);
-      if (error) return error;
-      return handleProductDelete(db, id!);
-    }
-
-    // PUT /api/products/:id - 상품 수정
-    if (pathname.startsWith("/api/products/") && method === "PUT") {
-      // /api/products/:id/status 패턴은 제외
-      if (pathname.includes("/status") || pathname.includes("/links")) {
-        // 다른 핸들러에서 처리
-      } else {
-        const { id, error } = parseProductId(pathname);
-        if (error) return error;
-        return handleProductUpdate(request, db, id!);
-      }
-    }
-
-    // PUT /api/products/:id/links/:platform/status - 링크 ON/OFF
-    if (pathname.match(/^\/api\/products\/\d+\/links\/(coupang|naver)\/status$/) && method === "PUT") {
-      const parts = pathname.split("/");
-      const productId = Number(parts[3]);
-      const platform = parts[5];
-
-      if (!Number.isInteger(productId) || productId <= 0) {
-        return Response.json({ error: "잘못된 상품 ID입니다." }, { status: 400 });
-      }
-
-      return handleLinkStatus(request, db, productId, platform);
-    }
-
-    // ========== 리다이렉트 ==========
-    if (pathname.startsWith("/go/")) {
-      return handleRedirect(db, pathname, ctx, request);
-    }
-
-    // ========== 메인 페이지 ==========
+    // ── 공개 홈 ──
     if (pathname === "/" && method === "GET") {
-      return handleHomePage(db, url.searchParams.get("search") || "");
+      const res = await handleHomePage(db);
+      // 방문 카운트: 봇 아님 + 오늘 첫 방문(쿠키 없음)일 때만
+      if (countableVisit(request, url) && !hasFreshVisitCookie(request)) {
+        ctx.waitUntil(recordVisit(db));
+        res.headers.append("Set-Cookie", visitCookie(url));
+      }
+      return res;
+    }
+
+    // ── 라우트 테이블 ──
+    for (const route of ROUTES) {
+      if (route.method !== method) continue;
+      const m = route.pattern.exec(pathname);
+      if (!m) continue;
+      return route.handler({ request, ctx, db, params: m.slice(1) });
     }
 
     return new Response("Not Found", { status: 404 });

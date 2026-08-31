@@ -1,26 +1,7 @@
 // home.ts - 공개 페이지 (방문자용)
 
 import { escapeHtml } from "../lib/html";
-
-type Product = {
-  id: number;
-  product_number: string;
-  name: string;
-  image_url: string | null;
-  is_active: number;
-  coupang_url: string | null;
-  coupang_active: number;
-  naver_url: string | null;
-  naver_active: number;
-};
-
-type SiteSettings = {
-  site_name: string;
-  greeting: string | null;
-  representative_image_url: string | null;
-  link_columns: number;
-  theme: "light" | "dark";
-};
+import type { Product, SiteSettings } from "../types";
 
 export function homePage(products: Product[], settings: SiteSettings): string {
   const productHtml = products.length === 0
@@ -481,7 +462,7 @@ export function homePage(products: Product[], settings: SiteSettings): string {
       
       <p class="greeting">${escapeHtml(settings.greeting || '')}</p>
       
-      <input class="search-box" type="text" placeholder="제품번호 검색 (예: 001)" oninput="searchProduct(this.value)">
+      <input class="search-box" type="search" placeholder="제품번호·상품명 검색" oninput="searchProduct(this.value)">
     </section>
 
     <section class="products columns-${columns}">
@@ -546,23 +527,17 @@ export function homePage(products: Product[], settings: SiteSettings): string {
     }
 
     function searchProduct(input) {
-      if (input.length >= 1) {
-        // [수정] 검색 결과를 화면에 직접 표시
-        const keyword = input.trim().toLowerCase();
-        document.querySelectorAll('.product').forEach((product) => {
-          const productNumber = product.querySelector('.product-number').textContent.trim().toLowerCase();
-          if (productNumber.includes(keyword)) {
-            product.style.display = 'block';
-          } else {
-            product.style.display = 'none';
-          }
-        });
-      } else {
-        // [수정] 검색어를 지우면 모든 상품을 다시 표시
-        document.querySelectorAll('.product').forEach((product) => {
-          product.style.display = 'block';
-        });
-      }
+      const keyword = input.trim().toLowerCase();
+      document.querySelectorAll('.product').forEach((product) => {
+        if (!keyword) {
+          product.style.display = '';
+          return;
+        }
+        const number = (product.querySelector('.product-number')?.textContent || '').toLowerCase();
+        const name = (product.querySelector('h2')?.textContent || '').toLowerCase();
+        // display:'' 로 되돌려야 카드의 flex 레이아웃(버튼 하단 정렬)이 유지된다
+        product.style.display = number.includes(keyword) || name.includes(keyword) ? '' : 'none';
+      });
     }
 
     function applyTheme(theme) {

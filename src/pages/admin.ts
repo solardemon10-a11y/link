@@ -1,36 +1,9 @@
 // admin.ts - 관리자 페이지
 
 import { escapeHtml, jsonForScript } from "../lib/html";
+import type { AdminProduct, SiteSettings, VisitStats } from "../types";
 
-type Product = {
-  id: number;
-  product_number: string;
-  name: string;
-  image_url: string | null;
-  is_active: number;
-  coupang_url: string | null;
-  coupang_active: number;
-  naver_url: string | null;
-  naver_active: number;
-  coupang_clicks: number;
-  naver_clicks: number;
-  total_clicks: number;
-};
-
-type SiteSettings = {
-  site_name: string;
-  greeting: string | null;
-  representative_image_url: string | null;
-  link_columns: number;
-  theme: "light" | "dark";
-};
-
-type VisitStats = {
-  total: number;
-  today: number;
-};
-
-export function adminPage(products: Product[], settings: SiteSettings, stats: VisitStats): string {
+export function adminPage(products: AdminProduct[], settings: SiteSettings, stats: VisitStats): string {
   const productList = products.length === 0
     ? `<div class="empty">등록된 상품이 없습니다.</div>`
     : products.map((product) => `
@@ -68,7 +41,7 @@ export function adminPage(products: Product[], settings: SiteSettings, stats: Vi
                 <span class="${product.coupang_url ? "registered" : "not-registered"}">
                   ${product.coupang_url ? "등록됨" : "미등록"}
                 </span>
-                <span class="click-count">총 ${product.coupang_clicks} | 오늘 0</span>
+                <span class="click-count">총 ${product.coupang_clicks} | 오늘 ${product.coupang_clicks_today}</span>
                 ${product.coupang_url
                   ? `<a href="/go/${product.id}/coupang?preview=1" target="_blank" class="preview-btn" style="font-size: 10px; padding: 3px 6px; border-radius: 4px; color: white; background: #1E293B; text-decoration: none;">미리보기</a>`
                   : ""
@@ -88,7 +61,7 @@ export function adminPage(products: Product[], settings: SiteSettings, stats: Vi
                 <span class="${product.naver_url ? "registered" : "not-registered"}">
                   ${product.naver_url ? "등록됨" : "미등록"}
                 </span>
-                <span class="click-count">총 ${product.naver_clicks} | 오늘 0</span>
+                <span class="click-count">총 ${product.naver_clicks} | 오늘 ${product.naver_clicks_today}</span>
                 ${product.naver_url
                   ? `<a href="/go/${product.id}/naver?preview=1" target="_blank" class="preview-btn" style="font-size: 10px; padding: 3px 6px; border-radius: 4px; color: white; background: #1E293B; text-decoration: none;">미리보기</a>`
                   : ""
@@ -723,7 +696,7 @@ export function adminPage(products: Product[], settings: SiteSettings, stats: Vi
     <!-- 상품 목록 -->
     <section class="section">
       <h2>등록된 상품</h2>
-      <input class="search-box" id="search" type="search" placeholder="제품번호 검색">
+      <input class="search-box" id="search" type="search" placeholder="제품번호·상품명 검색">
       <div id="product-list">${productList}</div>
     </section>
   </main>
@@ -938,7 +911,11 @@ export function adminPage(products: Product[], settings: SiteSettings, stats: Vi
       document.querySelectorAll(".product").forEach((element) => {
         const product = products.find(item => String(item.id) === element.dataset.id);
         if (!product) return;
-        element.style.display = product.product_number.toLowerCase().includes(keyword) ? "" : "none";
+        const hit =
+          !keyword ||
+          product.product_number.toLowerCase().includes(keyword) ||
+          product.name.toLowerCase().includes(keyword);
+        element.style.display = hit ? "" : "none";
       });
     });
   </script>
