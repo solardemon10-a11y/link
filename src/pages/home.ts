@@ -1,575 +1,376 @@
-// home.ts - 공개 페이지 (방문자용)
+// home.ts - 공개 페이지 (방문자용). 에디토리얼 레이아웃.
+//
+// 디자인 토큰은 아래 :root 에 하드코딩. 관리자에서 색을 조정하는 기능은 v1 범위 밖
+// (필요해지면 site_settings 에 appearance JSON 컬럼을 추가하고 여기 :root 값을 그걸로 주입).
 
 import { escapeHtml } from "../lib/html";
 import type { Product, SiteSettings } from "../types";
 
+const VALID_COLUMNS = [1, 2, 3, 6];
+
 export function homePage(products: Product[], settings: SiteSettings): string {
-  const productHtml = products.length === 0
-    ? `<div class="empty">등록된 상품이 없습니다.</div>`
-    : products
-        .map((product) => {
-          const coupangVisible = !!product.coupang_url && product.coupang_active === 1;
-          const naverVisible = !!product.naver_url && product.naver_active === 1;
-          const isSingleLink = (coupangVisible && !naverVisible) || (!coupangVisible && naverVisible);
-
-          return `
-            <article class="product" data-id="${product.id}">
-              <span class="product-number">${escapeHtml(product.product_number)}</span>
-              ${product.image_url
-                ? `<img class="product-image" src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.name)}">`
-                : `<div class="product-image no-image">이미지 없음</div>`
-              }
-              <h2>${escapeHtml(product.name)}</h2>
-              ${(coupangVisible || naverVisible) ? `
-                <div class="links ${isSingleLink ? "single" : ""}">
-                  ${coupangVisible
-                    ? `<a class="link coupang" href="/go/${product.id}/coupang" target="_blank" rel="noopener noreferrer">쿠팡</a>`
-                    : ""
-                  }
-                  ${naverVisible
-                    ? `<a class="link naver" href="/go/${product.id}/naver" target="_blank" rel="noopener noreferrer">네이버</a>`
-                    : ""
-                  }
-                </div>
-              ` : ""}
-            </article>
-          `;
-        })
-        .join("");
-
-  const representativeImage = settings.representative_image_url
-    ? `<img class="profile-image" src="${escapeHtml(settings.representative_image_url)}" alt="">`
-    : `<div class="profile-image">🔗</div>`;
-
-  // 관리자 설정값을 기본 배치로 사용
-  const columns = settings.link_columns || 2;
+  const columns = VALID_COLUMNS.includes(settings.link_columns) ? settings.link_columns : 1;
   const initialTheme = settings.theme === "dark" ? "dark" : "light";
+  const siteName = settings.site_name || "멀티링크";
 
-  return `
-<!DOCTYPE html>
+  const mono = settings.representative_image_url
+    ? `<img class="mono-img" src="${escapeHtml(settings.representative_image_url)}" alt="">`
+    : `<span class="mono-mark">${escapeHtml([...siteName][0] || "M")}</span>`;
+
+  const itemsHtml =
+    products.length === 0
+      ? ""
+      : products
+          .map((p) => {
+            const coupang = !!p.coupang_url && p.coupang_active === 1;
+            const naver = !!p.naver_url && p.naver_active === 1;
+            const num = escapeHtml(p.product_number);
+            const name = escapeHtml(p.name);
+
+            const shot = p.image_url
+              ? `<img class="shot" src="${escapeHtml(p.image_url)}" alt="${name}" loading="lazy">`
+              : `<div class="shot noimg" aria-hidden="true">이미지 없음</div>`;
+
+            const buys =
+              coupang || naver
+                ? `<div class="buys">
+                     ${coupang ? `<a class="buy c" href="/go/${p.id}/coupang" target="_blank" rel="noopener noreferrer">쿠팡</a>` : ""}
+                     ${naver ? `<a class="buy n" href="/go/${p.id}/naver" target="_blank" rel="noopener noreferrer">네이버</a>` : ""}
+                   </div>`
+                : "";
+
+            return `
+              <article class="item" data-number="${num}" data-name="${name}">
+                <div class="frame">
+                  ${shot}
+                  <span class="no">${num}</span>
+                </div>
+                <h2>${name}</h2>
+                ${buys}
+              </article>`;
+          })
+          .join("");
+
+  const disclosureHtml = settings.disclosure?.trim()
+    ? `<footer class="disclosure">${escapeHtml(settings.disclosure.trim())}</footer>`
+    : "";
+
+  const bodyHtml =
+    products.length === 0
+      ? `<div class="empty">등록된 상품이 없습니다.</div>`
+      : `<section class="list" id="list">${itemsHtml}${disclosureHtml}</section>`;
+
+  return `<!DOCTYPE html>
 <html lang="ko" data-theme="${initialTheme}">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${escapeHtml(settings.site_name)}</title>
-
-  <script>
-    (() => {
-      const saved = localStorage.getItem("multilink-theme");
-      if (saved === "dark" || saved === "light") {
-        document.documentElement.dataset.theme = saved;
-      }
-    })();
-  </script>
-
-  <style>
-    :root {
-      --bg: #F5F2EB; /* [변경] 은은한 라이트 베이지 */
-      --card: #FFFDF9; /* [변경] 부드러운 크림 화이트 */
-      --text: #4A3F35; /* [변경] 진한 브라운 */
-      --muted: #8A7B6C;
-      --border: #E8E0D8;
-      --empty: #999999;
-      --toggle-bg: #FFFDF9;
-      --primary: #4A89FF; /* [변경] 소프트 블루 (카드 라벨/팝업 포인트) */
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${escapeHtml(siteName)}</title>
+<script>
+  (function () {
+    try {
+      var t = localStorage.getItem("multilink-theme");
+      if (t === "dark" || t === "light") document.documentElement.dataset.theme = t;
+    } catch (e) {}
+  })();
+</script>
+<style>
+  :root {
+    --bg: #f2ece0;
+    --fg: #2b2621;
+    --heading: #2b2621;
+    --muted: #948a79;
+    --divider: #d7c9ad;
+    --divider-w: 2px;
+    --photo-border: #e2d8c4;
+    --photo-border-w: 1px;
+    --photo-radius: 4px;
+    --accent: #6e4a34;
+    --accent-fg: #fbf8f1;
+    --chip-bg: #faf6ec;
+    --field: #fbf8f1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #161108; --fg: #ede6d8; --heading: #ede6d8; --muted: #9a8d79;
+      --divider: #3d3220; --photo-border: #3a3121; --accent: #d8ac86;
+      --accent-fg: #201810; --chip-bg: #211b12; --field: #211b12;
     }
+  }
+  :root[data-theme="dark"] {
+    --bg: #161108; --fg: #ede6d8; --heading: #ede6d8; --muted: #9a8d79;
+    --divider: #3d3220; --photo-border: #3a3121; --accent: #d8ac86;
+    --accent-fg: #201810; --chip-bg: #211b12; --field: #211b12;
+  }
 
-    html[data-theme="dark"] {
-      --bg: #1A1614;
-      --card: #2A211B;
-      --text: #F5F0E8;
-      --muted: #A99A8B;
-      --border: #40332A;
-      --empty: #888888;
-      --toggle-bg: #2A211B;
-      --primary: #4A89FF;
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: "Noto Sans KR", -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+
+  a:focus-visible, button:focus-visible, input:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px;
+  }
+
+  /* ── 우상단 컨트롤 ── */
+  .controls { position: fixed; top: 14px; right: 14px; display: flex; gap: 8px; z-index: 50; }
+  .controls button {
+    width: 40px; height: 40px; border-radius: 50%; cursor: pointer;
+    border: 1px solid var(--divider); background: var(--field); color: var(--fg);
+    font-size: 16px; line-height: 1; display: flex; align-items: center; justify-content: center;
+  }
+  .controls button:hover { border-color: var(--accent); }
+
+  .popup {
+    position: fixed; top: 62px; right: 14px; z-index: 60;
+    background: var(--field); border: 1px solid var(--divider); border-radius: 12px;
+    padding: 6px; display: flex; flex-direction: column; gap: 2px; min-width: 108px;
+    box-shadow: 0 12px 30px -12px rgba(40,30,20,.4);
+  }
+  .popup[hidden] { display: none; }
+  .popup button {
+    border: 0; background: transparent; color: var(--fg); cursor: pointer;
+    text-align: left; padding: 9px 12px; border-radius: 8px; font-size: 13px;
+  }
+  .popup button:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .popup button[aria-checked="true"] { color: var(--accent); font-weight: 700; }
+
+  /* ── 페이지 ── */
+  .page { margin: 0 auto; padding: 54px 20px 90px; }
+  .page.cols-1 { max-width: 448px; }
+  .page.cols-2 { max-width: 600px; }
+  .page.cols-3 { max-width: 840px; }
+  .page.cols-6 { max-width: 1120px; }
+
+  .brand { text-align: center; margin-bottom: 26px; }
+  .mono {
+    width: 58px; height: 58px; margin: 0 auto 14px; border-radius: 50%;
+    border: 1px solid var(--accent); overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .mono-img { width: 100%; height: 100%; object-fit: cover; }
+  .mono-mark { font-family: Georgia, "Noto Serif KR", serif; font-size: 24px; color: var(--accent); }
+  .brand h1 {
+    font-family: Georgia, "Noto Serif KR", serif; font-weight: 500;
+    font-size: 23px; letter-spacing: -0.01em; margin: 0 0 6px; color: var(--heading);
+  }
+  .greeting { font-size: 13px; color: var(--muted); margin: 0; }
+
+  .search {
+    display: flex; align-items: center; gap: 10px;
+    border-bottom: 1px solid var(--fg); padding: 10px 2px; margin: 22px 2px 8px;
+  }
+  .search svg { flex: none; opacity: .45; }
+  .search input {
+    border: 0; background: transparent; outline: none; width: 100%;
+    font-family: inherit; font-size: 15px; color: var(--fg);
+  }
+  .found { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 8px 2px 18px; }
+  .found[hidden] { display: none; }
+
+  .list { display: grid; gap: 0; }
+  .cols-2 .list { grid-template-columns: 1fr 1fr; gap: 0 14px; }
+  .cols-3 .list { grid-template-columns: repeat(3, 1fr); gap: 0 14px; }
+  .cols-6 .list { grid-template-columns: repeat(6, 1fr); gap: 0 10px; }
+
+  .item { padding: 24px 0; }
+  .item[hidden] { display: none; }
+  .cols-1 .item + .item { border-top: var(--divider-w) solid var(--divider); }
+  .cols-2 .item, .cols-3 .item, .cols-6 .item {
+    border-bottom: var(--divider-w) solid var(--divider); padding: 18px 0;
+  }
+
+  .frame { position: relative; }
+  .shot {
+    width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block;
+    border: var(--photo-border-w) solid var(--photo-border);
+    border-radius: var(--photo-radius);
+    background: #fff;
+  }
+  .cols-2 .shot, .cols-3 .shot, .cols-6 .shot { aspect-ratio: 1 / 1; }
+  .shot.noimg {
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 12px; background: var(--field);
+  }
+  :root[data-theme="dark"] .shot:not(.noimg) { background: #f2ece0; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .shot:not(.noimg) { background: #f2ece0; }
+  }
+  .item.match .shot { border-color: var(--accent); }
+
+  .no {
+    position: absolute; top: 10px; left: 10px;
+    font-family: Georgia, serif; font-size: 14px; line-height: 1; letter-spacing: .03em;
+    background: var(--chip-bg); color: var(--accent);
+    border: 1px solid var(--photo-border); padding: 5px 10px; border-radius: 999px;
+  }
+  .item.match .no { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+
+  .item h2 {
+    font-family: "Noto Serif KR", Georgia, serif; font-weight: 500;
+    font-size: 15px; line-height: 1.5; color: var(--heading); margin: 13px 2px 13px;
+  }
+  .cols-3 .item h2, .cols-6 .item h2 { font-size: 13px; margin: 10px 1px 10px; }
+
+  .buys { display: flex; gap: 8px; }
+  .buy {
+    flex: 1; text-align: center; text-decoration: none;
+    font-size: 12.5px; font-weight: 600; letter-spacing: .02em;
+    padding: 11px 8px; border-radius: 999px;
+  }
+  .cols-3 .buy, .cols-6 .buy { font-size: 11px; padding: 8px 4px; }
+  .buy.c { background: var(--accent); color: var(--accent-fg); }
+  .buy.n { color: var(--accent); border: 1px solid var(--accent); }
+
+  .disclosure {
+    grid-column: 1 / -1; margin-top: 8px; padding-top: 20px;
+    border-top: var(--divider-w) solid var(--divider);
+    font-size: 10.5px; line-height: 1.7; color: var(--muted); text-align: center;
+  }
+
+  .empty { padding: 80px 20px; text-align: center; color: var(--muted); }
+
+  @media (max-width: 620px) {
+    .page.cols-3, .page.cols-6 { max-width: 460px; }
+    .cols-3 .list, .cols-6 .list { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 380px) {
+    .page.cols-2, .page.cols-3, .page.cols-6 { max-width: 100%; }
+    .cols-2 .list, .cols-3 .list, .cols-6 .list { grid-template-columns: 1fr; }
+    .cols-2 .item, .cols-3 .item, .cols-6 .item { border-bottom: 0; }
+    .cols-2 .item + .item, .cols-3 .item + .item, .cols-6 .item + .item {
+      border-top: var(--divider-w) solid var(--divider);
     }
+    .cols-2 .shot, .cols-3 .shot, .cols-6 .shot { aspect-ratio: 4 / 3; }
+  }
 
-    * { box-sizing: border-box; }
-    html, body { margin: 0; min-height: 100%; }
-
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: Arial, "Noto Sans KR", sans-serif;
-      transition: background 0.2s ease, color 0.2s ease;
-    }
-
-    /* 배치 선택 팝업 (이미지 버튼) */
-    .layout-toggle-btn {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 44px;
-      height: 44px;
-      padding: 0;
-      border: 1px solid var(--border);
-      border-radius: 50%;
-      background: var(--toggle-bg);
-      color: var(--text);
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .layout-toggle-btn:hover {
-      border-color: var(--primary);
-    }
-
-    .layout-btn-preview {
-      display: grid;
-      gap: 2px;
-      width: 18px;
-      height: 18px;
-    }
-
-    .layout-btn-preview.cols-2 { grid-template-columns: repeat(2, 1fr); }
-    .layout-btn-preview.cols-3 { grid-template-columns: repeat(3, 1fr); }
-    .layout-btn-preview.cols-6 { grid-template-columns: repeat(6, 1fr); }
-
-    .layout-btn-preview .card {
-      background: transparent;
-      border: 1.5px solid var(--primary);
-      border-radius: 3px;
-      opacity: 1;
-    }
-
-    .top-controls {
-      position: fixed;
-      top: 16px;
-      right: 70px;
-      display: flex;
-      gap: 8px;
-      z-index: 100;
-    }
-
-    .layout-popup {
-      position: fixed;
-      top: 60px;
-      right: 70px;
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 10px;
-      z-index: 200;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-      display: none;
-      width: 160px;
-    }
-
-    .layout-option {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 10px;
-      margin-bottom: 8px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: var(--toggle-bg);
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .layout-option:hover {
-      border-color: var(--primary);
-      background: var(--card);
-    }
-
-    .layout-preview {
-      display: grid;
-      gap: 2px;
-      width: 100px;
-      height: 30px;
-      margin-bottom: 6px;
-    }
-
-    .layout-preview.cols-2 { grid-template-columns: repeat(2, 1fr); }
-    .layout-preview.cols-3 { grid-template-columns: repeat(3, 1fr); }
-    .layout-preview.cols-6 { grid-template-columns: repeat(6, 1fr); }
-
-    .layout-preview .card {
-      background: transparent;
-      border: 1.5px solid var(--primary);
-      border-radius: 3px;
-      opacity: 1;
-    }
-
-    .layout-option span {
-      font-size: 12px;
-      font-weight: bold;
-      color: var(--text);
-    }
-
-    .theme-toggle {
-      position: fixed;
-      top: 16px;
-      right: 16px;
-      width: 44px;
-      height: 44px;
-      border: 1px solid var(--border);
-      border-radius: 50%;
-      background: var(--toggle-bg);
-      color: var(--text);
-      cursor: pointer;
-      font-size: 20px;
-      z-index: 100;
-    }
-
-    .container {
-      width: 100%;
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 48px 24px;
-    }
-
-    .profile { text-align: center; margin-bottom: 36px; }
-
-    .profile-image {
-      width: 96px;
-      height: 96px;
-      margin: 0 auto 16px;
-      border-radius: 50%;
-      object-fit: cover;
-      background: var(--border);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 36px;
-    }
-
-    .profile h1 { margin: 0 0 8px; font-size: 26px; }
-    .greeting { margin: 0 0 24px; color: var(--muted); font-size: 16px; }
-
-    .search-box {
-      width: 100%;
-      max-width: 400px;
-      display: block;
-      margin: 0 auto 24px;
-      padding: 12px;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: var(--card);
-      color: var(--text);
-    }
-
-    .products {
-      display: grid;
-      gap: 18px;
-    }
-    .products.columns-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .products.columns-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    .products.columns-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-
-    .product {
-      position: relative;
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 16px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-      transition: background 0.2s ease, border-color 0.2s ease;
-
-      /* 카드 내부를 세로 방향으로 배치 */
-      display: flex;
-      flex-direction: column;
-    }
-    .product-image-wrap {
-      position: relative;
-      width: 100%;
-      margin-bottom: 14px;
-    }
-
-    .product-number {
-      display: block;
-      margin: 0 0 8px;
-      color: var(--text);
-      font-weight: bold;
-      font-size: 20px;
-      line-height: 1.2;
-      text-align: center;
-    }
-
-    .products.columns-3 .product-number {
-      font-size: 18px;
-      text-align: center;
-    }
-
-    .products.columns-6 .product-number {
-      font-size: 15px;
-      text-align: center;
-    }
-
-    .product-image {
-      width: 100%;
-      max-height: 400px;
-      aspect-ratio: 1 / 1;
-      object-fit: cover;
-      display: block;
-      margin-bottom: 14px;
-      border-radius: 12px;
-    }
-
-    .product h2 {
-      margin: 0 0 14px;
-      font-size: clamp(11px, 1.5vw, 17px);
-      line-height: 1.4;
-      word-break: keep-all;
-      overflow-wrap: break-word;
-
-      /* 상품명 영역 높이를 일정하게 */
-      min-height: calc(1.4em * 2);
-
-      /* 버튼을 카드 아래쪽으로 밀기 위한 영역 */
-      flex-grow: 0;
-    }
-
-    .links {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
-
-      /* 링크 영역을 카드 하단으로 정렬 */
-      margin-top: auto;
-    }
-
-    .link {
-      min-height: clamp(32px, 4vw, 46px);
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      text-decoration: none;
-      font-size: clamp(10px, 1.25vw, 16px);
-      font-weight: 700;
-      padding: 0 8px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .coupang {
-      background: #2563EB; /* [변경] 차콜 네이비 */
-      color: #FFFFFF;
-      min-height: 46px;
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      text-decoration: none;
-      font-size: 16px;
-      font-weight: 700;
-      padding: 0 14px;
-    }
-    .naver {
-      background: #03C75A; /* [변경] 딥 포레스트 그린 */
-      color: #FFFFFF;
-      min-height: 46px;
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      text-decoration: none;
-      font-size: 16px;
-      font-weight: 700;
-      padding: 0 14px;
-    }
-
-    .empty {
-      padding: 60px 20px;
-      text-align: center;
-      color: var(--empty);
-    }
-
-    @media (max-width: 800px) {
-      .container { padding: 42px 16px; }
-      .products.columns-6 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    }
-
-    @media (max-width: 600px) {
-      .container { padding: 40px 14px; }
-      .products.columns-2,
-      .products.columns-3,
-      .products.columns-6 {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-      .product { padding: 12px; border-radius: 14px; }
-      .product h2 { font-size: 15px; }
-      .link { min-height: 42px; font-size: 13px; }
-    }
-
-    @media (max-width: 400px) {
-      .products.columns-2,
-      .products.columns-3,
-      .products.columns-6 {
-        grid-template-columns: 1fr;
-      }
-    }
-  </style>
+  @media (prefers-reduced-motion: no-preference) {
+    .controls button, .buy, .popup button { transition: border-color .15s ease, background .15s ease; }
+  }
+</style>
 </head>
-
 <body>
-  <!-- 우상단 배치 설정(아이콘) + 테마 버튼 -->
-  <div class="top-controls">
-    <button class="layout-toggle-btn" onclick="document.getElementById('layout-popup').style.display='block'" aria-label="배치 설정">
-      <!-- [핵심] 클래스가 동적으로 바뀌도록 설정 -->
-      <div class="layout-btn-preview cols-2" id="layout-btn-preview">
-        <div class="card"></div>
-        <div class="card"></div>
-      </div>
-    </button>
-
-    <!-- 테마 변경 버튼 -->
-    <button class="theme-toggle" id="theme-toggle" type="button" aria-label="테마 변경">🌙</button>
+  <div class="controls">
+    <button id="layout-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="layout-popup" aria-label="배치 바꾸기" title="배치">▦</button>
+    <button id="theme-toggle" type="button" aria-label="테마 바꾸기" title="테마">◐</button>
+  </div>
+  <div id="layout-popup" class="popup" role="menu" aria-label="열 개수" hidden>
+    <button type="button" role="menuitemradio" data-cols="1">1열</button>
+    <button type="button" role="menuitemradio" data-cols="2">2열</button>
+    <button type="button" role="menuitemradio" data-cols="3">3열</button>
+    <button type="button" role="menuitemradio" data-cols="6">6열</button>
   </div>
 
-  <!-- 배치 선택 팝업 -->
-  <div id="layout-popup" class="layout-popup">
+  <main class="page cols-${columns}" id="page">
+    <header class="brand">
+      <div class="mono">${mono}</div>
+      <h1>${escapeHtml(siteName)}</h1>
+      ${settings.greeting ? `<p class="greeting">${escapeHtml(settings.greeting)}</p>` : ""}
+    </header>
 
-    <div class="layout-option" onclick="changeLayout(2)">
-      <div class="layout-preview cols-2">
-        <div class="card"></div>
-        <div class="card"></div>
-      </div>
-      <span>2개</span>
+    <div class="search">
+      <label class="sr-only" for="q">번호 또는 상품 이름으로 검색</label>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m21 21-4.3-4.3"></path></svg>
+      <input id="q" type="search" inputmode="search" autocomplete="off" placeholder="번호 · 상품 이름" aria-describedby="found">
     </div>
+    <p class="found" id="found" role="status" hidden></p>
 
-    <div class="layout-option" onclick="changeLayout(3)">
-      <div class="layout-preview cols-3">
-        <div class="card"></div>
-        <div class="card"></div>
-        <div class="card"></div>
-      </div>
-      <span>3개</span>
-    </div>
-
-    <div class="layout-option" onclick="changeLayout(6)">
-      <div class="layout-preview cols-6">
-        <div class="card"></div>
-        <div class="card"></div>
-        <div class="card"></div>
-        <div class="card"></div>
-        <div class="card"></div>
-        <div class="card"></div>
-      </div>
-      <span>6개</span>
-    </div>
-
-  </div>
-
-  <main class="container">
-    <section class="profile">
-      ${representativeImage}
-      <h1>${escapeHtml(settings.site_name)}</h1>
-      
-      <p class="greeting">${escapeHtml(settings.greeting || '')}</p>
-      
-      <input class="search-box" type="search" placeholder="제품번호·상품명 검색" oninput="searchProduct(this.value)">
-    </section>
-
-    <section class="products columns-${columns}">
-      ${productHtml}
-    </section>
+    ${bodyHtml}
   </main>
 
-  <script>
-    const themeToggle = document.getElementById("theme-toggle");
+<script>
+(function () {
+  var VALID = [1, 2, 3, 6];
+  var page = document.getElementById("page");
+  var serverCols = ${columns};
 
-    // 관리자에서 설정한 배치값을 기본값으로 사용
-    const defaultLayout = ${columns};
-
-    // 사용자가 직접 선택한 배치가 있으면 사용
-    // 선택한 값이 없으면 관리자 설정값 사용
-    const savedLayout = localStorage.getItem('multilink-layout');
-
-    const currentLayout =
-      savedLayout && [2, 3, 6].includes(Number(savedLayout))
-        ? Number(savedLayout)
-        : defaultLayout;
-
-    // 현재 배치 적용
-    const productsGrid = document.querySelector('.products');
-
-    if (productsGrid && [2, 3, 6].includes(currentLayout)) {
-      productsGrid.className = 'products columns-' + currentLayout;
-    }
-
-    // 상단 배치 아이콘 적용
-    const preview = document.getElementById('layout-btn-preview');
-
-    if (preview && [2, 3, 6].includes(currentLayout)) {
-      preview.className = 'layout-btn-preview cols-' + currentLayout;
-      preview.innerHTML = '';
-
-      for (let i = 0; i < currentLayout; i++) {
-        const card = document.createElement('div');
-        card.className = 'card';
-        preview.appendChild(card);
-      }
-    }
-
-    function changeLayout(cols) {
-      localStorage.setItem('multilink-layout', cols);
-      document.getElementById('layout-popup').style.display = 'none';
-
-      // 상품 그리드 변경
-      const productsGrid = document.querySelector('.products');
-      productsGrid.className = 'products columns-' + cols;
-
-      // 배치 아이콘 변경
-      const preview = document.getElementById('layout-btn-preview');
-      preview.className = 'layout-btn-preview cols-' + cols;
-      preview.innerHTML = '';
-
-      for (let i = 0; i < cols; i++) {
-        const card = document.createElement('div');
-        card.className = 'card';
-        preview.appendChild(card);
-      }
-    }
-
-    function searchProduct(input) {
-      const keyword = input.trim().toLowerCase();
-      document.querySelectorAll('.product').forEach((product) => {
-        if (!keyword) {
-          product.style.display = '';
-          return;
-        }
-        const number = (product.querySelector('.product-number')?.textContent || '').toLowerCase();
-        const name = (product.querySelector('h2')?.textContent || '').toLowerCase();
-        // display:'' 로 되돌려야 카드의 flex 레이아웃(버튼 하단 정렬)이 유지된다
-        product.style.display = number.includes(keyword) || name.includes(keyword) ? '' : 'none';
-      });
-    }
-
-    function applyTheme(theme) {
-      document.documentElement.dataset.theme = theme;
-      localStorage.setItem('multilink-theme', theme);
-      if (themeToggle) {
-        themeToggle.textContent = theme === "dark" ? "☀️" : "🌙";
-      }
-    }
-
-    const currentTheme = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
-    applyTheme(currentTheme);
-
-    themeToggle?.addEventListener("click", () => {
-      const current = document.documentElement.dataset.theme;
-      const next = current === "dark" ? "light" : "dark";
-      applyTheme(next);
+  // ── 열 개수 ──
+  function readSaved() {
+    try {
+      var n = Number(localStorage.getItem("multilink-layout"));
+      return VALID.indexOf(n) >= 0 ? n : null;
+    } catch (e) { return null; }
+  }
+  function setLayout(n, persist) {
+    if (VALID.indexOf(n) < 0) return;
+    VALID.forEach(function (v) { page.classList.remove("cols-" + v); });
+    page.classList.add("cols-" + n);
+    if (persist) { try { localStorage.setItem("multilink-layout", String(n)); } catch (e) {} }
+    document.querySelectorAll("#layout-popup button").forEach(function (b) {
+      b.setAttribute("aria-checked", b.dataset.cols === String(n) ? "true" : "false");
     });
+  }
+  setLayout(readSaved() || serverCols, false);
 
-    // [필수] 팝업 밖(바깥)을 클릭하면 팝업 닫기
-    window.addEventListener('click', function(event) {
-      const popup = document.getElementById('layout-popup');
-      const btn = document.querySelector('.layout-toggle-btn');
-      
-      if (popup.style.display === 'block' && !popup.contains(event.target) && !btn.contains(event.target)) {
-        popup.style.display = 'none';
-      }
+  var toggle = document.getElementById("layout-toggle");
+  var popup = document.getElementById("layout-popup");
+  function openPopup() { popup.hidden = false; toggle.setAttribute("aria-expanded", "true"); }
+  function closePopup(focusBack) {
+    popup.hidden = true; toggle.setAttribute("aria-expanded", "false");
+    if (focusBack) toggle.focus();
+  }
+  toggle.addEventListener("click", function () { popup.hidden ? openPopup() : closePopup(false); });
+  popup.querySelectorAll("button").forEach(function (b) {
+    b.addEventListener("click", function () { setLayout(Number(b.dataset.cols), true); closePopup(true); });
+  });
+  document.addEventListener("click", function (e) {
+    if (!popup.hidden && !popup.contains(e.target) && !toggle.contains(e.target)) closePopup(false);
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !popup.hidden) closePopup(true);
+  });
+
+  // ── 테마 ──
+  var themeBtn = document.getElementById("theme-toggle");
+  function applyTheme(t) {
+    document.documentElement.dataset.theme = t;
+    try { localStorage.setItem("multilink-theme", t); } catch (e) {}
+    themeBtn.textContent = t === "dark" ? "☀" : "☾";
+  }
+  applyTheme(document.documentElement.dataset.theme === "dark" ? "dark" : "light");
+  themeBtn.addEventListener("click", function () {
+    applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+  });
+
+  // ── 검색: 번호 또는 이름 ──
+  var input = document.getElementById("q");
+  var found = document.getElementById("found");
+  var items = [].slice.call(document.querySelectorAll(".item"));
+
+  function filter(raw) {
+    var kw = raw.trim().toLowerCase();
+    if (!kw) {
+      items.forEach(function (el) { el.hidden = false; el.classList.remove("match"); });
+      found.hidden = true;
+      return;
+    }
+    var hits = 0;
+    var numeric = /^[0-9]+$/.test(kw);
+    items.forEach(function (el) {
+      var num = (el.dataset.number || "").toLowerCase();
+      var name = (el.dataset.name || "").toLowerCase();
+      var hit = num.indexOf(kw) >= 0 || name.indexOf(kw) >= 0;
+      el.hidden = !hit;
+      // 번호로 검색했고 정확히 일치하면 강조
+      el.classList.toggle("match", hit && numeric && num === kw);
+      if (hit) hits++;
     });
-
-
-  </script>
+    found.textContent = items.length + "개 중 " + hits + "개";
+    found.hidden = false;
+  }
+  input.addEventListener("input", function () { filter(input.value); });
+})();
+</script>
 </body>
-</html>
-`;
+</html>`;
 }

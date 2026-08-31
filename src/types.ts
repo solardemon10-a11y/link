@@ -8,6 +8,7 @@ export type SiteSettings = {
   representative_image_url: string | null;
   link_columns: number;
   theme: "light" | "dark";
+  disclosure: string | null;
 };
 
 export type Product = {

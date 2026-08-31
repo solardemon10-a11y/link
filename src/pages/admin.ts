@@ -623,15 +623,20 @@ export function adminPage(products: AdminProduct[], settings: SiteSettings, stat
               <input id="greeting" type="text" value="${escapeHtml(settings.greeting || '')}">
             </div>
             <div class="full">
-              <label for="rep-image-url">대표 이미지 URL</label>
+              <label for="rep-image-url">대표 이미지 URL (원형 로고)</label>
               <input id="rep-image-url" type="url" value="${escapeHtml(settings.representative_image_url || "")}" placeholder="https://...">
               <!-- 파일 업로드는 R2 연동 후 추가 예정. 지금은 이미지 URL 만 지원한다. -->
             </div>
-            
+
             <div class="full">
-              <!-- [추가] 상품 배치 설정 -->
+              <label for="disclosure">하단 고지 문구 (쿠팡파트너스 등)</label>
+              <input id="disclosure" type="text" value="${escapeHtml(settings.disclosure || "")}" placeholder="이 페이지의 링크 중 일부는 파트너스 활동의 일환으로 수수료를 받습니다.">
+            </div>
+
+            <div class="full">
               <label for="link_columns">상품 배치 (열 수)</label>
               <select id="link_columns">
+                <option value="1" ${settings.link_columns === 1 ? "selected" : ""}>1열 (사진 큼)</option>
                 <option value="2" ${settings.link_columns === 2 ? "selected" : ""}>2열</option>
                 <option value="3" ${settings.link_columns === 3 ? "selected" : ""}>3열</option>
                 <option value="6" ${settings.link_columns === 6 ? "selected" : ""}>6열</option>
@@ -773,12 +778,10 @@ export function adminPage(products: AdminProduct[], settings: SiteSettings, stat
       applyTheme(next);
     });
 
-    // ===== 사이트 설정 저장 (URL + 파일 업로드) =====
+    // ===== 사이트 설정 저장 =====
     settingsForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       settingsResult.textContent = "저장 중...";
-
-      const representativeImage = document.getElementById("rep-image-url").value;
 
       try {
         const response = await fetch("/api/settings", {
@@ -787,8 +790,9 @@ export function adminPage(products: AdminProduct[], settings: SiteSettings, stat
           body: JSON.stringify({
             site_name: document.getElementById("site-name").value,
             greeting: document.getElementById("greeting").value,
-            representative_image_url: representativeImage,
-            link_columns: Number(document.getElementById("link_columns").value), // [수정] 설정값 사용
+            representative_image_url: document.getElementById("rep-image-url").value,
+            disclosure: document.getElementById("disclosure").value,
+            link_columns: Number(document.getElementById("link_columns").value),
             theme: document.documentElement.dataset.theme
           })
         });

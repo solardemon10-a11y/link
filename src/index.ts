@@ -96,7 +96,7 @@ async function getSiteSettings(db: D1Database): Promise<SiteSettings> {
 
   let settings = await db
     .prepare(
-      `SELECT site_name, greeting, representative_image_url, link_columns, theme
+      `SELECT site_name, greeting, representative_image_url, link_columns, theme, disclosure
        FROM site_settings WHERE id = 1`
     )
     .first<SiteSettings>();
@@ -114,6 +114,7 @@ async function getSiteSettings(db: D1Database): Promise<SiteSettings> {
       representative_image_url: null,
       link_columns: 2,
       theme: "light",
+      disclosure: null,
     };
   }
 
@@ -270,6 +271,7 @@ async function handleSettingsUpdate(request: Request, db: D1Database): Promise<R
       representative_image_url?: string;
       link_columns?: number;
       theme?: "light" | "dark";
+      disclosure?: string;
     };
 
     const siteName = body.site_name?.trim() || "멀티링크";
@@ -277,22 +279,24 @@ async function handleSettingsUpdate(request: Request, db: D1Database): Promise<R
     const representativeImage = body.representative_image_url?.trim() || "";
     const linkColumns = [1, 2, 3, 6].includes(body.link_columns ?? 0) ? body.link_columns! : 2;
     const theme = body.theme === "dark" ? "dark" : "light";
+    const disclosure = body.disclosure?.trim() || "";
 
     await db
       .prepare(
         `
-        INSERT INTO site_settings (id, site_name, greeting, representative_image_url, link_columns, theme)
-        VALUES (1, ?, ?, ?, ?, ?)
+        INSERT INTO site_settings (id, site_name, greeting, representative_image_url, link_columns, theme, disclosure)
+        VALUES (1, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           site_name = excluded.site_name,
           greeting = excluded.greeting,
           representative_image_url = excluded.representative_image_url,
           link_columns = excluded.link_columns,
           theme = excluded.theme,
+          disclosure = excluded.disclosure,
           updated_at = CURRENT_TIMESTAMP
         `
       )
-      .bind(siteName, greeting, representativeImage, linkColumns, theme)
+      .bind(siteName, greeting, representativeImage, linkColumns, theme, disclosure)
       .run();
 
     cachedSettings = null;
