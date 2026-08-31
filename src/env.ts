@@ -5,14 +5,11 @@
 export interface Env {
   multilink_db: D1Database;
 
-  // ── Cloudflare Access (관리자 인증) ──────────────────────────
-  // 배포 환경에서 설정한다. 대시보드 Zero Trust > Access > Applications 에서 확인.
-  //   CF_ACCESS_TEAM_DOMAIN: 예) "yourteam.cloudflareaccess.com"
-  //   CF_ACCESS_AUD:         Application Audience(AUD) 태그
-  CF_ACCESS_TEAM_DOMAIN?: string;
-  CF_ACCESS_AUD?: string;
+  // ── 관리자 인증 (Basic Auth) ──────────────────────────────
+  // 배포:  npx wrangler secret put ADMIN_PASSWORD
+  ADMIN_PASSWORD?: string;
 
   // 로컬 개발 전용 탈출구. .dev.vars 에 ALLOW_INSECURE_ADMIN="true" 로 두면
-  // Access 검증을 건너뛴다. 배포 환경에는 절대 설정하지 말 것.
+  // 인증을 건너뛴다. 배포 환경에는 절대 설정하지 말 것.
   ALLOW_INSECURE_ADMIN?: string;
 }

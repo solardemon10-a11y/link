@@ -165,3 +165,6 @@ dist
 .env*
 !.env.example
 .wrangler/
+
+# 원격 시드용 임시 파일 (실데이터 포함)
+seed-data.sql

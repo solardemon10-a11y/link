@@ -19,17 +19,11 @@
       "database_id": "1948bd65-eb8d-45ff-9d81-9c74f7ee9222",
       "migrations_dir": "migrations"
     }
-  ],
+  ]
 
   /**
-   * Cloudflare Access (관리자 인증)
-   * - CF_ACCESS_TEAM_DOMAIN: 아래에 실제 팀 도메인을 넣는다. 예) "yourteam.cloudflareaccess.com"
-   *   빈 값이면 /admin·/api/* 는 500 으로 잠긴다(fail-closed).
-   * - CF_ACCESS_AUD: 민감값이므로 vars 가 아니라 secret 으로 넣는다.
-   *     npx wrangler secret put CF_ACCESS_AUD
-   * - 로컬 개발은 .dev.vars 에 ALLOW_INSECURE_ADMIN="true" (아래 .dev.vars.example 참고)
+   * 관리자 인증(Basic Auth) 비밀번호는 secret 으로 등록한다:
+   *   npx wrangler secret put ADMIN_PASSWORD
+   * 로컬 개발은 .dev.vars 참고.
    */
-  "vars": {
-    "CF_ACCESS_TEAM_DOMAIN": ""
-  }
 }

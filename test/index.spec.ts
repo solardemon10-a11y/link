@@ -5,12 +5,11 @@ import worker from "../src/index";
 // 스키마가 필요 없는 스모크 테스트.
 // (홈/상품 등 D1 스키마가 필요한 테스트는 마이그레이션 적용 셋업을 붙인 뒤 추가)
 
-// Access 미구성 상태를 강제한다. (로컬 .dev.vars 의 ALLOW_INSECURE_ADMIN 을 무시)
+// 인증 미구성 상태를 강제한다. (로컬 .dev.vars 의 ALLOW_INSECURE_ADMIN 을 무시)
 const lockedEnv = {
   ...env,
   ALLOW_INSECURE_ADMIN: "",
-  CF_ACCESS_TEAM_DOMAIN: "",
-  CF_ACCESS_AUD: "",
+  ADMIN_PASSWORD: "",
 };
 
 async function fetchWith(path: string, init?: RequestInit, e: unknown = env) {
@@ -29,14 +28,14 @@ describe("라우팅 / 인증 가드", () => {
     expect((await fetchWith("/go/abc/coupang")).status).toBe(404);
   });
 
-  it("/admin 은 Access 미구성 시 500 으로 잠긴다 (fail-closed)", async () => {
+  it("/admin 은 인증 미설정 시 500 으로 잠긴다 (fail-closed)", async () => {
     const res = await fetchWith("/admin", undefined, lockedEnv);
     expect(res.status).toBe(500);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toContain("관리자 인증");
   });
 
-  it("/api/* 도 Access 미구성 시 잠긴다", async () => {
+  it("/api/* 도 인증 미설정 시 잠긴다", async () => {
     const res = await fetchWith(
       "/api/products",
       { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
