@@ -159,12 +159,13 @@ export function homePage(products: Product[], settings: SiteSettings): string {
     display: flex; align-items: center; justify-content: center;
   }
   .mono-img { width: 100%; height: 100%; object-fit: cover; }
-  .mono-mark { font-family: Georgia, "Noto Serif KR", serif; font-size: 24px; color: var(--accent); }
+  .mono-mark { font-family: Georgia, "Noto Serif KR", serif; font-size: 25px; color: var(--accent); }
   .brand h1 {
-    font-family: Georgia, "Noto Serif KR", serif; font-weight: 500;
-    font-size: 23px; letter-spacing: -0.01em; margin: 0 0 6px; color: var(--heading);
+    font-family: Georgia, "Noto Serif KR", serif; font-weight: 600;
+    font-size: 25px; letter-spacing: -0.01em; margin: 0 0 7px; color: var(--heading);
+    word-break: keep-all;
   }
-  .greeting { font-size: 13px; color: var(--muted); margin: 0; }
+  .greeting { font-size: 14px; color: var(--muted); margin: 0; line-height: 1.6; word-break: keep-all; }
 
   .search {
     display: flex; align-items: center; gap: 10px;
@@ -173,9 +174,9 @@ export function homePage(products: Product[], settings: SiteSettings): string {
   .search svg { flex: none; opacity: .45; }
   .search input {
     border: 0; background: transparent; outline: none; width: 100%;
-    font-family: inherit; font-size: 15px; color: var(--fg);
+    font-family: inherit; font-size: 15.5px; color: var(--fg);
   }
-  .found { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 8px 2px 18px; }
+  .found { font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 8px 2px 18px; }
   .found[hidden] { display: none; }
 
   .list { display: grid; gap: 0; }
@@ -210,32 +211,36 @@ export function homePage(products: Product[], settings: SiteSettings): string {
 
   .no {
     position: absolute; top: 10px; left: 10px;
-    font-family: Georgia, serif; font-size: 14px; line-height: 1; letter-spacing: .03em;
+    font-family: "Noto Sans KR", sans-serif; font-weight: 700; font-size: 13px;
+    line-height: 1; letter-spacing: .02em;
     background: var(--chip-bg); color: var(--accent);
-    border: 1px solid var(--photo-border); padding: 5px 10px; border-radius: 999px;
+    border: 1px solid var(--photo-border); padding: 6px 11px; border-radius: 999px;
+    box-shadow: 0 1px 4px rgba(30, 22, 14, .16);
   }
   .item.match .no { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
 
   .item h2 {
-    font-family: "Noto Serif KR", Georgia, serif; font-weight: 500;
-    font-size: 15px; line-height: 1.5; color: var(--heading); margin: 13px 2px 13px;
+    font-family: "Noto Sans KR", sans-serif; font-weight: 600;
+    font-size: 16px; line-height: 1.55; color: var(--heading); margin: 12px 2px 12px;
+    word-break: keep-all; overflow-wrap: break-word;
   }
-  .cols-3 .item h2, .cols-6 .item h2 { font-size: 13px; margin: 10px 1px 10px; }
+  .cols-3 .item h2, .cols-6 .item h2 { font-size: 14px; margin: 10px 1px 10px; }
 
   .buys { display: flex; gap: 8px; }
   .buy {
     flex: 1; text-align: center; text-decoration: none;
-    font-size: 12.5px; font-weight: 600; letter-spacing: .02em;
-    padding: 11px 8px; border-radius: 999px;
+    font-size: 13.5px; font-weight: 700; letter-spacing: .01em;
+    padding: 12px 8px; border-radius: 999px;
   }
-  .cols-3 .buy, .cols-6 .buy { font-size: 11px; padding: 8px 4px; }
+  .cols-3 .buy, .cols-6 .buy { font-size: 12px; padding: 9px 4px; }
   .buy.c { background: var(--accent); color: var(--accent-fg); }
   .buy.n { color: var(--accent); border: 1px solid var(--accent); }
 
   .disclosure {
     grid-column: 1 / -1; margin-top: 8px; padding-top: 20px;
     border-top: var(--divider-w) solid var(--divider);
-    font-size: 10.5px; line-height: 1.7; color: var(--muted); text-align: center;
+    font-size: 11.5px; line-height: 1.7; color: var(--muted); text-align: center;
+    word-break: keep-all;
   }
 
   .empty { padding: 80px 20px; text-align: center; color: var(--muted); }
