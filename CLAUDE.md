@@ -12,19 +12,21 @@
 
 - **라이브**: `https://link.onelookshopping.workers.dev` (워커 이름 `link`, 계정 서브도메인 `onelookshopping`)
 - **원격 D1**: `multilink-db`, id `1948bd65-eb8d-45ff-9d81-9c74f7ee9222`
-- **공개 `/`** 는 무인증, **`/admin`·`/api/*`** 는 Basic Auth (비밀번호 1개)
+- **공개 `/`** 는 무인증, **`/admin`·`/api/*`** 는 로그인(세션 쿠키) + Basic Auth 병행
 
 ## 2. 파일 지도
 
 ```
 src/index.ts        엔트리 · 라우터(정규식 테이블) · 모든 핸들러 · D1 쿼리
-src/auth.ts         관리자 Basic Auth (Authorization: Basic, 비밀번호만 확인)
-src/env.ts          Env 타입 (multilink_db, ADMIN_PASSWORD, ALLOW_INSECURE_ADMIN)
+src/auth.ts         관리자 인증 — 로그인화면+세션쿠키(사람용) + Basic Auth(서버-투-서버용) 병행.
+                    비밀번호는 site_settings.admin_password_hash(PBKDF2) 우선,
+                    비어있으면 ADMIN_PASSWORD secret 폴백. 세션은 SESSION_SECRET로 서명
+src/env.ts          Env 타입 (multilink_db, ADMIN_PASSWORD, SESSION_SECRET, ALLOW_INSECURE_ADMIN)
 src/types.ts        공유 도메인 타입 (Product, AdminProduct, SiteSettings, ...)
 src/lib/html.ts     escapeHtml · jsonForScript(<script> 안 JSON 주입 시 '<' 이스케이프)
 src/pages/home.ts   공개 페이지 (에디토리얼 레이아웃, HTML 문자열)
-src/pages/admin.ts  관리자 페이지 (상품 CRUD · 설정 · 미리보기 iframe)
-migrations/          0001 스키마 · 0002 disclosure 컬럼 · 0003 visit_keys
+src/pages/admin.ts  관리자 페이지 (상품 CRUD · 설정 · 미리보기 iframe · 로그아웃 · 비밀번호 변경)
+migrations/          0001 스키마 · 0002 disclosure 컬럼 · 0003 visit_keys · 0004 admin_password_hash
 test/index.spec.ts  스모크 테스트 (라우팅 · 인증 fail-closed) — D1 스키마 불필요
 ```
 
@@ -51,9 +53,23 @@ fetch(request, env, ctx)
 - **번호(`product_number`)는 한번 부여되면 고정.** 관리자 페이지에선 직접
   입력, Youtube 자동화 쪽은 `next-number` API로 순번 자동 부여(§7) — 어느
   경로든 부여 후 재부여/시프트 금지. 캡션의 숫자 = 상품 번호가 어긋나면 안 됨.
-- **관리자 인증 = Basic Auth** (`wrangler secret put ADMIN_PASSWORD`). 아이디는 무시,
-  비밀번호만 확인. 미설정 시 500 fail-closed. Cloudflare Access 는 폐기(전환됨).
-  로컬은 `.dev.vars` 의 `ALLOW_INSECURE_ADMIN="true"`.
+- **관리자 인증 = 로그인 화면 + 세션 쿠키(사람용) + Basic Auth(프로그램용) 병행.**
+  Cloudflare Access는 폐기(전환됨) → 예전 Basic-Auth-only 방식도 그 뒤 로그인+세션
+  방식으로 다시 전환됨(2026-09-14 CLAUDE.md 갱신 시점에 대조해 확인 — 이 대화 밖 작업).
+  - 사람: `/admin/login` 화면 → 성공 시 서명된 세션 쿠키(`ml_admin_session`, HMAC-SHA256,
+    `SESSION_SECRET`로 서명, 무상태). `/admin/logout`으로 쿠키 삭제.
+  - 비밀번호: `site_settings.admin_password_hash`(PBKDF2 해시)가 있으면 그걸로,
+    비어 있으면(최초 배포 직후) `ADMIN_PASSWORD` secret과 평문 비교. 관리자 화면
+    "비밀번호 변경"(`POST /api/change-password`)을 한 번이라도 하면 그 뒤로는
+    DB 해시만 씀 — `ADMIN_PASSWORD`는 최초 1회용 부트스트랩.
+  - 프로그램(Youtube `multilink_client.py` 등 로그인 화면이 없는 호출자): 여전히
+    `Authorization: Basic base64(아무거나:비밀번호)` 지원 — 아이디 무시, 비밀번호만
+    확인. 비밀번호를 바꾸면 이 경로도 즉시 새 비밀번호로 맞춰짐(같은 검증 함수 공유).
+  - **필요한 secret 2개**: `ADMIN_PASSWORD`(부트스트랩) + `SESSION_SECRET`(세션 서명,
+    충분히 긴 무작위 문자열 — **한번 정하면 바꾸지 말 것**, 바꾸면 로그인된 사람 전부
+    로그아웃됨).
+  - 둘 다 없으면(또는 세션 무효) fail-closed. 로컬은 `.dev.vars`의
+    `ALLOW_INSECURE_ADMIN="true"`로 전부 우회.
 - **디자인**: 에디토리얼 (원형 모노그램 + Noto Sans KR + 코코아·아이보리).
   항목 = 카드 아님, **2px 구분선**. 사진 매트 1px 테두리. 알약 버튼(쿠팡 채움 /
   네이버 테두리). 색 토큰은 `home.ts` 상단 `:root` 하드코딩 (관리자 색 조정 기능은 범위 밖).
@@ -73,7 +89,9 @@ fetch(request, env, ctx)
   마이그레이션 안 PRAGMA 를 API 에러로 뱉는다 (0001 에서 제거함). D1 은 FK 기본 ON.
 - **`wrangler d1 list` 의 `num_tables` 는 캐시라 틀릴 수 있다.** 실제 확인은
   `SELECT name FROM sqlite_master WHERE type='table'`.
-- **secret 은 워커별.** 워커 이름 바꿔 재배포하면 새 워커라 `ADMIN_PASSWORD` 다시 등록해야 함.
+- **secret 은 워커별.** 워커 이름 바꿔 재배포하면 새 워커라 `ADMIN_PASSWORD`·`SESSION_SECRET`
+  둘 다 다시 등록해야 함. `SESSION_SECRET`을 재등록(값 변경)하면 로그인돼 있던 사람 전부
+  로그아웃됨 — 값이 같으면 문제없음, 값을 바꾸는 재등록만 주의.
 - **`wrangler tail` 의 "Ok" = 예외 없이 응답함. 401/500 도 "Ok" 로 찍힘** (통과 아님).
 - **admin 미리보기 iframe** 은 `/?preview=1` 로 로드 — 방문 카운트 제외 대상.
   admin 페이지 열 때마다 `/admin` + `/?preview=1` 쌍이 로그에 뜨는 건 정상.
@@ -90,7 +108,8 @@ fetch(request, env, ctx)
 | 로컬 마이그레이션 | `npm run migrate:local` |
 | 원격 마이그레이션 | `npm run migrate:remote` (배포와 별개, 스키마 바꾸면 필수) |
 | 배포 | `npx wrangler deploy` |
-| 관리자 비번 설정 | `npx wrangler secret put ADMIN_PASSWORD` |
+| 관리자 비번 부트스트랩 | `npx wrangler secret put ADMIN_PASSWORD` |
+| 세션 서명 키 (최초 1회, 이후 변경 금지) | `npx wrangler secret put SESSION_SECRET` |
 | 실시간 요청 로그 | `npx wrangler tail link` |
 | 원격 쿼리 | `npx wrangler d1 execute multilink-db --remote --command "..."` |
 | 테스트/타입체크 | `npx vitest run` / `npx tsc --noEmit` |
