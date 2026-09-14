@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 > Claude Code 작업용 요약. `AGENTS.md`는 Cloudflare 일반 지침(별도).
-> 마지막 갱신: 2026-09-01
+> 마지막 갱신: 2026-09-14
 
 ---
 
@@ -48,8 +48,9 @@ fetch(request, env, ctx)
 
 ## 4. 확정된 결정 (다시 묻지 말 것)
 
-- **번호(`product_number`)는 사용자가 직접 입력하는 문자열, 한번 부여되면 고정.**
-  캡션의 숫자 = 상품 번호가 어긋나면 안 됨. 자동 재부여/시프트 금지.
+- **번호(`product_number`)는 한번 부여되면 고정.** 관리자 페이지에선 직접
+  입력, Youtube 자동화 쪽은 `next-number` API로 순번 자동 부여(§7) — 어느
+  경로든 부여 후 재부여/시프트 금지. 캡션의 숫자 = 상품 번호가 어긋나면 안 됨.
 - **관리자 인증 = Basic Auth** (`wrangler secret put ADMIN_PASSWORD`). 아이디는 무시,
   비밀번호만 확인. 미설정 시 500 fail-closed. Cloudflare Access 는 폐기(전환됨).
   로컬은 `.dev.vars` 의 `ALLOW_INSECURE_ADMIN="true"`.
@@ -101,8 +102,19 @@ fetch(request, env, ctx)
 
 ## 7. 미해결 / 다음
 
-- **쇼츠 프로그램 연동 미구현.** 크롤링 결과 → 이 D1 로 상품 자동 입력. 자동 시
-  번호를 순번대로 부여하는 체계 필요(§4 번호 규칙). 지금은 전부 수동.
+- ~~쇼츠 프로그램 연동 미구현~~ → **완료, 실사용 중 (2026-09-14 기준).**
+  `D:\Automation\Youtube`의 `multilink_client.py`가 이 API를 호출한다:
+  - `GET /api/products/next-number` (`handleNextNumber`, `index.ts:402`) — 다음
+    번호 미리보기(`MAX(CAST(product_number AS INTEGER))+1`, 자릿수는 기존 최대
+    번호 폭 유지).
+  - `POST /api/products` — 실제 등록(번호 확정, `is_active=1`로 생성됨 →
+    Youtube 쪽이 등록 직후 곧바로 아래 PUT으로 비활성화해 "번호만 예약, 노출은
+    업로드 성공 후"를 구현).
+  - `PUT /api/products/:id/status` (`handleProductStatus`) — 업로드 성공 시
+    활성화. 실패 시 비활성 상태로 방치(공개 페이지에 안 뜸).
+  - `PUT /api/products/:id`(update) — 등록 후 네이버 링크가 나중에 들어오면 추가.
+  경쟁 조건 방지 로직(번호 확정을 최대한 이른 시점에 실제 등록으로 옮김)은
+  Youtube 프로젝트 쪽 책임 — 여기 API는 그대로, 호출 시점만 그쪽에서 관리.
 - `visit_keys` 정리(오래된 행 삭제) 안 함 — 작아서 방치. 커지면 cron 또는 주기 삭제.
 - 관리자 페이지 디자인은 아직 공개 페이지 톤으로 안 맞춤(구 스타일).
 - 짧은 도메인 미적용 (workers.dev 주소 사용 중). Cloudflare Registrar + Custom Domain.

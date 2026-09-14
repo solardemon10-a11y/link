@@ -2,7 +2,15 @@
 
 import { homePage } from "./pages/home";
 import { adminPage } from "./pages/admin";
-import { requireAdmin } from "./auth";
+import { loginPage } from "./pages/login";
+import {
+  requireAdmin,
+  verifyAdminPassword,
+  setAdminPassword,
+  issueSession,
+  sessionCookieHeader,
+  clearSessionCookieHeader,
+} from "./auth";
 import type { Env } from "./env";
 import type { Platform, Product, AdminProduct, SiteSettings, VisitStats } from "./types";
 
@@ -292,6 +300,52 @@ async function handleAdminPage(db: D1Database): Promise<Response> {
   }
 }
 
+function handleLoginPage(url: URL): Response {
+  const error = url.searchParams.get("error") === "1";
+  return html(loginPage({ error }), "no-store");
+}
+
+async function handleLoginSubmit(request: Request, db: D1Database, env: Env): Promise<Response> {
+  const form = await request.formData();
+  const password = String(form.get("password") || "");
+  const ok = await verifyAdminPassword(password, db, env);
+  if (!ok) {
+    return new Response(null, { status: 302, headers: { Location: "/admin/login?error=1" } });
+  }
+  const token = await issueSession(env);
+  return new Response(null, {
+    status: 302,
+    headers: { Location: "/admin", "Set-Cookie": sessionCookieHeader(token) },
+  });
+}
+
+function handleLogout(): Response {
+  return new Response(null, {
+    status: 302,
+    headers: { Location: "/admin/login", "Set-Cookie": clearSessionCookieHeader() },
+  });
+}
+
+async function handleChangePassword(request: Request, db: D1Database, env: Env): Promise<Response> {
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: "잘못된 요청입니다." }, { status: 400 });
+  }
+  const current = String(body?.current_password || "");
+  const next = String(body?.new_password || "");
+  if (!next || next.length < 4) {
+    return Response.json({ error: "새 비밀번호는 4자 이상이어야 합니다." }, { status: 400 });
+  }
+  const ok = await verifyAdminPassword(current, db, env);
+  if (!ok) {
+    return Response.json({ error: "현재 비밀번호가 올바르지 않습니다." }, { status: 400 });
+  }
+  await setAdminPassword(next, db);
+  return Response.json({ ok: true });
+}
+
 async function handleSettingsUpdate(request: Request, db: D1Database): Promise<Response> {
   try {
     const body = (await request.json()) as {
@@ -334,6 +388,35 @@ async function handleSettingsUpdate(request: Request, db: D1Database): Promise<R
     console.error(error);
     return Response.json({ error: "사이트 설정 저장 중 오류가 발생했습니다." }, { status: 500 });
   }
+}
+
+/**
+ * 다음 제품번호를 알려준다. 지금 등록된 상품 중 번호가 가장 큰 것의
+ * 자릿수를 그대로 이어받는다(자릿수를 고정값으로 안 박아두는 이유:
+ * 이 코드 하나로 여러 계정 사이트에 배포하는데, 신생 사이트는 0개라
+ * "0001"부터, 이미 상품이 있던 사이트는 그 사이트 번호 자릿수 그대로
+ * 이어가야 해서 - 예: 상품이 하나도 없으면 "0001", 마지막 번호가
+ * "698"이면 "699"). "644-2"처럼 뒤에 -숫자가 붙어도 앞자리 숫자만
+ * 본다.
+ */
+async function handleNextNumber(db: D1Database): Promise<Response> {
+  const top = await db
+    .prepare(
+      `SELECT product_number FROM products
+       ORDER BY CAST(product_number AS INTEGER) DESC, product_number DESC
+       LIMIT 1`
+    )
+    .first<{ product_number: string }>();
+
+  let width = 4;
+  let nextBase = 1;
+  const m = top?.product_number.match(/^(\d+)/);
+  if (m) {
+    width = m[1].length;
+    nextBase = parseInt(m[1], 10) + 1;
+  }
+
+  return Response.json({ next_number: String(nextBase).padStart(width, "0") });
 }
 
 async function handleProductCreate(request: Request, db: D1Database): Promise<Response> {
@@ -540,6 +623,7 @@ type RouteCtx = {
   request: Request;
   ctx: ExecutionContext;
   db: D1Database;
+  env: Env;
   params: string[]; // 정규식 캡처 그룹
 };
 
@@ -552,9 +636,14 @@ type Route = {
 // 구체적인 패턴을 먼저. 첫 매치가 이긴다.
 const ROUTES: Route[] = [
   { method: "GET", pattern: /^\/admin$/, handler: (c) => handleAdminPage(c.db) },
+  { method: "GET", pattern: /^\/admin\/login$/, handler: (c) => handleLoginPage(new URL(c.request.url)) },
+  { method: "POST", pattern: /^\/admin\/login$/, handler: (c) => handleLoginSubmit(c.request, c.db, c.env) },
+  { method: "POST", pattern: /^\/admin\/logout$/, handler: () => handleLogout() },
+  { method: "POST", pattern: /^\/api\/change-password$/, handler: (c) => handleChangePassword(c.request, c.db, c.env) },
 
   { method: "PUT", pattern: /^\/api\/settings$/, handler: (c) => handleSettingsUpdate(c.request, c.db) },
 
+  { method: "GET", pattern: /^\/api\/products\/next-number$/, handler: (c) => handleNextNumber(c.db) },
   { method: "POST", pattern: /^\/api\/products$/, handler: (c) => handleProductCreate(c.request, c.db) },
 
   {
@@ -597,9 +686,11 @@ export default {
     const { pathname } = url;
     const method = request.method;
 
-    // ── 관리자 인증 (Cloudflare Access): /admin, /api/* ──
+    // ── 관리자 인증: /admin(페이지), /api/*(fetch) ──
+    // /admin/login, /admin/logout 은 로그인 전에도 열려야 하므로 정확히
+    // "/admin"인 경우만 게이트를 건다.
     if (pathname === "/admin" || pathname.startsWith("/api/")) {
-      const guard = await requireAdmin(request, env);
+      const guard = await requireAdmin(request, db, env, pathname === "/admin");
       if (!guard.ok) return guard.response;
     }
 
@@ -624,7 +715,7 @@ export default {
       if (route.method !== method) continue;
       const m = route.pattern.exec(pathname);
       if (!m) continue;
-      return route.handler({ request, ctx, db, params: m.slice(1) });
+      return route.handler({ request, ctx, db, env, params: m.slice(1) });
     }
 
     return new Response("Not Found", { status: 404 });

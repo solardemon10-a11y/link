@@ -598,6 +598,10 @@ export function adminPage(products: AdminProduct[], settings: SiteSettings, stat
 
   <button class="theme-toggle" id="theme-toggle" type="button">🌙</button>
 
+  <form method="POST" action="/admin/logout" style="position: fixed; top: 16px; right: 74px; z-index: 1001;">
+    <button type="submit" style="width: 44px; height: 44px; border-radius: 50%; background: var(--card); color: var(--text); border: 1px solid var(--border); cursor: pointer; font-size: 18px;" title="로그아웃">🚪</button>
+  </form>
+
   <main class="container">
     <h1>${escapeHtml(settings.site_name)} 관리자</h1>
 
@@ -646,6 +650,25 @@ export function adminPage(products: AdminProduct[], settings: SiteSettings, stat
           
           <button class="submit-btn" type="submit">사이트 설정 저장</button>
           <div class="result" id="settings-result"></div>
+        </form>
+      </div>
+    </section>
+
+    <!-- 비밀번호 변경 - 아코디언 (기본 닫힘) -->
+    <section class="section">
+      <h2 onclick="toggleAccordion('password-change')" style="cursor:pointer; display:flex; justify-content:space-between;">
+        비밀번호 변경 <span>▼</span>
+      </h2>
+      <div id="password-change" class="accordion-content">
+        <form id="password-form">
+          <label for="current-password">현재 비밀번호</label>
+          <input id="current-password" type="password" required autocomplete="current-password">
+          <label for="new-password">새 비밀번호</label>
+          <input id="new-password" type="password" required minlength="4" autocomplete="new-password">
+          <label for="new-password-confirm">새 비밀번호 확인</label>
+          <input id="new-password-confirm" type="password" required minlength="4" autocomplete="new-password">
+          <button class="submit-btn" type="submit">비밀번호 변경</button>
+          <div class="result" id="password-result"></div>
         </form>
       </div>
     </section>
@@ -707,8 +730,23 @@ export function adminPage(products: AdminProduct[], settings: SiteSettings, stat
   </main>
 
   <script>
+    // 세션이 끊겼는데(만료·다른 기기에서 비번 변경 등) 관리자 화면에 남아
+    // 있다가 API 호출하면 서버가 401을 준다 - 그 경우 로그인 화면으로
+    // 보낸다(기존 Basic Auth는 브라우저가 알아서 다시 물어봤지만, 쿠키
+    // 방식은 서버가 401을 줘도 화면은 그대로라 직접 처리해야 한다).
+    const nativeFetch = window.fetch;
+    window.fetch = async (...args) => {
+      const res = await nativeFetch(...args);
+      if (res.status === 401) {
+        location.href = "/admin/login";
+      }
+      return res;
+    };
+
     const products = ${jsonForScript(products)};
     const productForm = document.getElementById("product-form");
+    const passwordForm = document.getElementById("password-form");
+    const passwordResult = document.getElementById("password-result");
     const productResult = document.getElementById("product-result");
     const settingsForm = document.getElementById("settings-form");
     const settingsResult = document.getElementById("settings-result");
@@ -804,6 +842,34 @@ export function adminPage(products: AdminProduct[], settings: SiteSettings, stat
         setTimeout(() => location.reload(), 400);
       } catch (error) {
         settingsResult.textContent = error instanceof Error ? error.message : "저장에 실패했습니다.";
+      }
+    });
+
+    // ===== 비밀번호 변경 =====
+    passwordForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const current = document.getElementById("current-password").value;
+      const next = document.getElementById("new-password").value;
+      const confirm = document.getElementById("new-password-confirm").value;
+
+      if (next !== confirm) {
+        passwordResult.textContent = "새 비밀번호가 서로 일치하지 않습니다.";
+        return;
+      }
+
+      passwordResult.textContent = "변경 중...";
+      try {
+        const response = await fetch("/api/change-password", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ current_password: current, new_password: next }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "비밀번호 변경에 실패했습니다.");
+        passwordResult.textContent = "변경되었습니다.";
+        passwordForm.reset();
+      } catch (error) {
+        passwordResult.textContent = error instanceof Error ? error.message : "비밀번호 변경에 실패했습니다.";
       }
     });
 
