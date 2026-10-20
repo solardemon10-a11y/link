@@ -54,6 +54,17 @@ DEFAULT_KEYWORDS = [
     "쇼핑커넥트 패션",
 ]
 
+# 주제별 리포트용 (--topics). 키워드 앞에 쇼핑커넥트 문구를 붙여 검색한다.
+TOPICS = {
+    "코스트코·다이소": ["코스트코 추천템", "다이소 추천템", "코스트코 꿀템", "다이소 신상"],
+    "집·인테리어": ["인테리어 소품 추천", "생활용품 추천", "주방용품 추천", "수납 정리 추천"],
+    "건강": ["영양제 추천", "건강식품 추천", "비타민 후기"],
+    "뷰티": ["화장품 추천", "스킨케어 후기", "헤어 제품 추천"],
+    "육아·반려동물": ["육아용품 추천", "반려견 용품 추천", "고양이 용품 추천"],
+    "자동차·캠핑": ["차량용품 추천", "캠핑용품 추천", "캠핑 장비 후기"],
+    "패션": ["가을 코디 추천", "신발 추천", "가방 추천"],
+}
+
 DISCLOSURE_RE = re.compile(r"쇼핑\s*커넥트|브랜드\s*커넥트|수수료를?\s*제공")
 TAG_RE = re.compile(r"<[^>]+>")
 
@@ -78,7 +89,8 @@ def search(query, start, cid, secret, sort="sim"):
         return json.load(res)
 
 
-def collect(keywords, pages, cid, secret, delay):
+def collect(keywords, pages, cid, secret, delay, topic_of=None):
+    topic_of = topic_of or {}
     posts = {}  # link -> row
     for kw in keywords:
         for page in range(pages):
@@ -110,6 +122,7 @@ def collect(keywords, pages, cid, secret, delay):
                         "hits": 0,
                         "best_rank": rank,
                         "keywords": [],
+                        "topic": topic_of.get(kw, ""),
                     },
                 )
                 row["score"] += 1.0 / rank
@@ -152,10 +165,36 @@ def summarize_bloggers(posts):
     return rows
 
 
+def topic_table(posts):
+    """주제별 블로그 수 · 블로그당 글 · 글 날짜 범위 · 쇼핑커넥트 글 수."""
+    by_topic = defaultdict(lambda: defaultdict(list))
+    for p in posts:
+        if p["topic"]:
+            by_topic[p["topic"]][p["blog_id"] or p["blogger"]].append(p)
+    total = sum(len(v) for t in by_topic.values() for v in t.values()) or 1
+    rows = []
+    for topic, blogs in by_topic.items():
+        n_posts = sum(len(v) for v in blogs.values())
+        dates = sorted(p["postdate"] for v in blogs.values() for p in v if p["postdate"])
+        rows.append({
+            "topic": topic,
+            "share": f"{n_posts / total * 100:.1f}%",
+            "blogs": len(blogs),
+            "posts_per_blog": round(n_posts / len(blogs), 2),
+            "disclosure_posts": sum(1 for v in blogs.values() for p in v if p["disclosure"]),
+            "oldest_post": dates[0] if dates else "",
+            "newest_post": dates[-1] if dates else "",
+            "_n": n_posts,
+        })
+    rows.sort(key=lambda r: r["_n"], reverse=True)
+    return rows
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pages", type=int, default=3, help="키워드당 페이지 수(1페이지=100건, 최대 10)")
     ap.add_argument("--keywords-file", help="키워드 목록(한 줄에 하나). 없으면 기본 키워드")
+    ap.add_argument("--topics", action="store_true", help="주제별 표(topics.csv)도 만든다. 기본 키워드 대신 주제 키워드를 검색")
     ap.add_argument("--out", default="out")
     ap.add_argument("--delay", type=float, default=0.2, help="요청 간 대기(초)")
     args = ap.parse_args()
@@ -171,7 +210,16 @@ def main():
     else:
         keywords = DEFAULT_KEYWORDS
 
-    posts = collect(keywords, args.pages, cid, secret, args.delay)
+    topic_of = {}
+    if args.topics:
+        keywords = []
+        for topic, kws in TOPICS.items():
+            for k in kws:
+                q = f"쇼핑커넥트 {k}"
+                keywords.append(q)
+                topic_of[q] = topic
+
+    posts = collect(keywords, args.pages, cid, secret, args.delay, topic_of)
     posts.sort(key=lambda p: (p["disclosure"], p["score"]), reverse=True)
     for p in posts:
         p["keywords"] = " | ".join(p["keywords"])
@@ -180,13 +228,20 @@ def main():
     os.makedirs(args.out, exist_ok=True)
     write_csv(os.path.join(args.out, "posts.csv"), posts,
               ["title", "link", "blogger", "blog_id", "postdate", "disclosure",
-               "score", "hits", "best_rank", "keywords", "snippet"])
+               "score", "hits", "best_rank", "topic", "keywords", "snippet"])
     bloggers = summarize_bloggers(posts)
     for b in bloggers:
         b["score"] = round(b["score"], 4)
     write_csv(os.path.join(args.out, "bloggers.csv"), bloggers,
               ["blogger", "blog_id", "disclosure_posts", "posts", "score",
                "best_rank", "top_post", "top_link"])
+    if args.topics:
+        rows = topic_table(posts)
+        write_csv(os.path.join(args.out, "topics.csv"), rows,
+                  ["topic", "share", "blogs", "posts_per_blog", "disclosure_posts",
+                   "oldest_post", "newest_post"])
+        for r in rows:
+            print(f'{r["topic"]:<10} 비중 {r["share"]:>6}  블로그 {r["blogs"]:>4}곳  블로그당 {r["posts_per_blog"]}편')
     print(f"글 {len(posts)}건, 블로거 {len(bloggers)}명 → {args.out}/")
 
 
