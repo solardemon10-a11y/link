@@ -217,8 +217,8 @@ function openEditDialog(a){
   var kids = [].concat(fieldV("이름","label","text","",a.label), fieldV("핸들 (표시용)","handle","text","@name",a.handle));
   if (a.platform==="youtube") kids = kids.concat(fieldV("채널 ID (UC...) 또는 @핸들","external_id","text","@mychannel",a.external_id));
   else if (a.platform==="instagram") {
-    kids = kids.concat(fieldV("IG 사용자 ID (숫자)","external_id","text","",a.external_id));
     kids = kids.concat(fieldV("액세스 토큰","token","password","바꿀 때만 입력 (비우면 기존 유지)",""));
+    kids = kids.concat(fieldV("IG 사용자 ID (숫자) — IGAA 토큰이면 비워도 됨","external_id","text","",a.external_id));
   } else kids = kids.concat(fieldV("현재 총 조회수 (비우면 영상 합계 사용)","manual_total","text","",a.manual_total));
   kids.push(h("div",{class:"mut"},"플랫폼은 바꿀 수 없습니다. 바꾸려면 삭제 후 다시 추가하세요."));
   openDialog("계정 수정 — "+PLAT[a.platform], kids, function(form,dlg){
@@ -236,7 +236,7 @@ function openAccountDialog(){
     var p = sel.value;
     var kids = [];
     if (p==="youtube") { kids = kids.concat(field("채널 ID (UC...) 또는 @핸들","external_id","text","@mychannel")); kids.push(h("div",{class:"mut"},"공개 조회수만 읽습니다. 서버에 YOUTUBE_API_KEY 가 등록돼 있어야 합니다.")); }
-    else if (p==="instagram") { kids = kids.concat(field("IG 사용자 ID (숫자)","external_id","text")); kids = kids.concat(field("액세스 토큰","token","password")); kids.push(h("div",{class:"mut"},"비즈니스/크리에이터 계정 + Meta 앱 토큰이 필요합니다. 저장 후 화면에는 다시 표시되지 않습니다.")); }
+    else if (p==="instagram") { kids = kids.concat(field("액세스 토큰","token","password","IGAA... 또는 EAA...")); kids = kids.concat(field("IG 사용자 ID (숫자) — IGAA 토큰이면 비워도 됨","external_id","text")); kids.push(h("div",{class:"mut"},"비즈니스/크리에이터 계정 + Meta 앱 토큰이 필요합니다. 저장 후 화면에는 다시 표시되지 않습니다.")); }
     else { kids = kids.concat(field("현재 총 조회수 (선택, 나중에 입력 가능)","manual_total","text")); kids.push(h("div",{class:"mut"},"이 플랫폼은 자동 수집을 지원하지 않아 직접 입력합니다.")); }
     extra.replaceChildren.apply(extra, kids);
   }

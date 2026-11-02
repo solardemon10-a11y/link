@@ -110,7 +110,8 @@ async function createAccount(request: Request, env: Env): Promise<Response> {
   const externalId = cleanStr(b.external_id, 200);
   const token = cleanStr(b.token, 2000);
   if (platform === "youtube" && !externalId) return bad("YouTube 는 채널 ID 또는 @핸들이 필요합니다.");
-  if (platform === "instagram" && (!externalId || !token)) return bad("Instagram 은 IG 사용자 ID 와 액세스 토큰이 필요합니다.");
+  if (platform === "instagram" && !token) return bad("Instagram 은 액세스 토큰이 필요합니다.");
+  if (platform === "instagram" && !token!.startsWith("IGAA") && !externalId) return bad("EAA 토큰은 IG 사용자 ID 도 필요합니다(IGAA 토큰은 비워도 됨).");
 
   const res = await env.views_db
     .prepare("INSERT INTO accounts (platform, label, handle, external_id, token, manual_total) VALUES (?,?,?,?,?,?)")
@@ -134,7 +135,8 @@ async function updateAccount(request: Request, env: Env, id: number): Promise<Re
   const token = cleanStr(b.token, 2000) ?? acc.token;
   const manualTotal = "manual_total" in b ? cleanCount(b.manual_total) : acc.manual_total;
   if (acc.platform === "youtube" && !externalId) return bad("YouTube 는 채널 ID 또는 @핸들이 필요합니다.");
-  if (acc.platform === "instagram" && (!externalId || !token)) return bad("Instagram 은 IG 사용자 ID 와 액세스 토큰이 필요합니다.");
+  if (acc.platform === "instagram" && !token) return bad("Instagram 은 액세스 토큰이 필요합니다.");
+  if (acc.platform === "instagram" && !token!.startsWith("IGAA") && !externalId) return bad("EAA 토큰은 IG 사용자 ID 도 필요합니다(IGAA 토큰은 비워도 됨).");
 
   await env.views_db
     .prepare("UPDATE accounts SET label=?, handle=?, external_id=?, token=?, manual_total=? WHERE id=?")

@@ -84,15 +84,21 @@ export async function fetchYoutube(acc: AccountRow, apiKey: string): Promise<Fet
 }
 
 // -------------------------------------------------------------- Instagram
-// 비즈니스/크리에이터 계정 + 장기 액세스 토큰 필요. external_id = IG 사용자 ID.
+// 비즈니스/크리에이터 계정 + 장기 액세스 토큰 필요. 토큰 종류가 두 가지다:
+//  - "Instagram 로그인" 토큰(IGAA...) → graph.instagram.com, 사용자 ID 불필요(`me`)
+//  - 페이스북 로그인 토큰(EAA...)     → graph.facebook.com, external_id = IG 사용자 ID 필요
 // 영상별 조회수는 media insights 의 `views` 지표(릴스/영상). 읽지 못한 건 views=null(기존값 유지).
 export async function fetchInstagram(acc: AccountRow): Promise<FetchedVideo[]> {
   const igId = (acc.external_id ?? "").trim();
   const token = (acc.token ?? "").trim();
-  if (!igId || !token) throw new Error("IG 사용자 ID 와 액세스 토큰이 필요합니다.");
+  if (!token) throw new Error("액세스 토큰이 필요합니다.");
+  const igLogin = token.startsWith("IGAA");
+  if (!igLogin && !igId) throw new Error("IG 사용자 ID 가 필요합니다(IGAA 로 시작하는 토큰이면 비워도 됩니다).");
   const secrets = [token];
+  const host = igLogin ? "https://graph.instagram.com" : "https://graph.facebook.com";
+  const owner = igLogin ? "me" : encodeURIComponent(igId);
 
-  const list = new URL(`https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(igId)}/media`);
+  const list = new URL(`${host}/${GRAPH_VERSION}/${owner}/media`);
   list.searchParams.set("fields", "id,caption,permalink,timestamp,like_count,comments_count");
   list.searchParams.set("limit", "25");
   list.searchParams.set("access_token", token);
@@ -103,7 +109,7 @@ export async function fetchInstagram(acc: AccountRow): Promise<FetchedVideo[]> {
     media.map(async (m): Promise<FetchedVideo> => {
       let views: number | null = null;
       try {
-        const ins = new URL(`https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(m.id)}/insights`);
+        const ins = new URL(`${host}/${GRAPH_VERSION}/${encodeURIComponent(m.id)}/insights`);
         ins.searchParams.set("metric", "views");
         ins.searchParams.set("access_token", token);
         const insBody = await getJson(ins.toString(), secrets);
