@@ -29,6 +29,9 @@ tr:last-child td{border-bottom:0}
 th{font-size:12px;color:var(--mut);font-weight:500;white-space:nowrap}
 th.s{cursor:pointer}
 td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+tr.click{cursor:pointer}
+tr.click:hover td{background:var(--bg)}
+tr.sel td{background:var(--bg);box-shadow:inset 0 1px 0 var(--acc),inset 0 -1px 0 var(--acc)}
 .up{color:var(--up)}
 .mut{color:var(--mut);font-size:12px}
 .err{color:var(--err);font-size:12px}
@@ -44,7 +47,7 @@ input,select{width:100%;font:inherit;padding:7px 10px;border:1px solid var(--lin
 
 const JS = String.raw`
 var PLAT = {youtube:"YouTube",instagram:"Instagram",tiktok:"TikTok",facebook:"Facebook",threads:"Threads",x:"X",other:"기타"};
-var state = {data:null, filter:"all", sort:"views"};
+var state = {data:null, filter:"all", account:null, sort:"views"};
 var nf = new Intl.NumberFormat("ko-KR");
 function fmt(n){ return n==null ? "-" : nf.format(n); }
 function delta(n){ if(n==null) return "-"; return (n>0?"+":"") + nf.format(n); }
@@ -71,7 +74,10 @@ function load(){
 
 function render(){
   var d = state.data, root = document.getElementById("root");
-  var accs = d.accounts.filter(function(a){ return state.filter==="all"||a.platform===state.filter; });
+  var accsAll = d.accounts.filter(function(a){ return state.filter==="all"||a.platform===state.filter; });
+  var sel = null; accsAll.forEach(function(a){ if (a.id===state.account) sel = a; });
+  if (!sel) state.account = null;
+  var accs = sel ? [sel] : accsAll;   // KPI·영상 목록은 선택한 계정만(없으면 전체)
   var ids = {}; accs.forEach(function(a){ ids[a.id]=a; });
   var vids = d.videos.filter(function(v){ return ids[v.account_id]; });
   if (state.sort==="date") vids.sort(function(a,b){ return String(b.published_at||"").localeCompare(String(a.published_at||"")); });
@@ -85,14 +91,14 @@ function render(){
   var plats = ["all"]; d.accounts.forEach(function(a){ if(plats.indexOf(a.platform)<0) plats.push(a.platform); });
   var chips = h("div",{class:"chips"}, plats.map(function(p){
     var total = 0; d.accounts.forEach(function(a){ if(p==="all"||a.platform===p) total+=a.views; });
-    return h("button",{class:"chip"+(state.filter===p?" on":""), onclick:function(){state.filter=p;render();}}, (p==="all"?"전체":PLAT[p])+" "+fmt(total));
+    return h("button",{class:"chip"+(state.filter===p?" on":""), onclick:function(){state.filter=p;state.account=null;render();}}, (p==="all"?"전체":PLAT[p])+" "+fmt(total));
   }));
 
   var accTable;
-  if (!accs.length) accTable = h("div",{class:"empty"},"계정이 없습니다. 오른쪽 위 \"+ 계정 추가\"로 시작하세요.");
+  if (!accsAll.length) accTable = h("div",{class:"empty"},"계정이 없습니다. 오른쪽 위 \"+ 계정 추가\"로 시작하세요.");
   else accTable = h("table",{},[
     h("thead",{},h("tr",{},[th("플랫폼"),th("계정"),th("조회수","n"),th("오늘","n"),th("7일","n"),th("영상","n"),th("수집 상태"),th("")])),
-    h("tbody",{}, accs.map(accRow))
+    h("tbody",{}, accsAll.map(accRow))
   ]);
 
   var vidTable;
@@ -105,7 +111,14 @@ function render(){
     h("tbody",{}, vids.slice(0,100).map(function(v){ return vidRow(v, ids[v.account_id]); }))
   ]);
 
-  root.replaceChildren(kpis, chips, h("h2",{},"계정별"), h("div",{class:"tw"},accTable), h("h2",{},"영상별 (상위 100개)"), h("div",{class:"tw"},vidTable));
+  root.replaceChildren(kpis, chips, h("h2",{},"계정별 (이름을 누르면 그 계정만 보기)"), h("div",{class:"tw"},accTable), vidHeading(sel, vids.length), h("div",{class:"tw"},vidTable));
+}
+function vidHeading(sel, n){
+  if (!sel) return h("h2",{},"영상별 (전체 상위 100개)");
+  return h("h2",{},[
+    PLAT[sel.platform]+" · "+sel.label+" 영상 "+n+"개 ",
+    h("button",{class:"sm",onclick:function(){ state.account=null; render(); }},"← 전체 보기")
+  ]);
 }
 function kpi(l,v){ return h("div",{class:"kpi"},[h("div",{class:"l"},l),h("div",{class:"v"},String(v))]); }
 function th(t,c){ return h("th",{class:c||""},t); }
@@ -123,7 +136,7 @@ function accRow(a){
     acts.push(h("button",{class:"sm",onclick:function(){ openVideoDialog(a); }},"영상 추가"));
   }
   acts.push(h("button",{class:"sm danger",onclick:function(){ delAccount(a); }},"삭제"));
-  return h("tr",{},[
+  return h("tr",{class:"click"+(a.id===state.account?" sel":""), onclick:function(){ state.account = (state.account===a.id ? null : a.id); render(); }},[
     h("td",{},PLAT[a.platform]),
     h("td",{},[h("div",{},a.label), a.handle?h("div",{class:"mut"},a.handle):""]),
     h("td",{class:"n"},fmt(a.views)),
@@ -131,7 +144,7 @@ function accRow(a){
     h("td",{class:"n"+(a.delta_7d>0?" up":"")},delta(a.delta_7d)),
     h("td",{class:"n"},fmt(a.video_count)),
     h("td",{},status),
-    h("td",{},h("div",{class:"act"},acts))
+    h("td",{onclick:function(e){ e.stopPropagation(); }},h("div",{class:"act"},acts))
   ]);
 }
 function vidRow(v, a){

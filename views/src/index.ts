@@ -62,8 +62,9 @@ async function handleSummary(env: Env): Promise<Response> {
       .all<any>(),
     db
       .prepare(
-        `SELECT id, account_id, title, url, published_at, views, likes, comments
-         FROM videos ORDER BY views DESC LIMIT 300`,
+        `SELECT id, account_id, title, url, published_at, views, likes, comments FROM (
+           SELECT *, ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY views DESC) AS rn FROM videos
+         ) WHERE rn <= 100 ORDER BY views DESC`,
       )
       .all<any>(),
     db
