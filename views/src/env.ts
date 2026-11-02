@@ -13,7 +13,7 @@ export type Platform = "youtube" | "instagram" | "tiktok" | "facebook" | "thread
 export const PLATFORMS: Platform[] = ["youtube", "instagram", "tiktok", "facebook", "threads", "x", "other"];
 
 /** API 로 자동 수집하는 플랫폼. 나머지는 수동 입력. */
-export const AUTO_PLATFORMS: Platform[] = ["youtube", "instagram"];
+export const AUTO_PLATFORMS: Platform[] = ["youtube", "instagram", "facebook"];
 
 export interface AccountRow {
   id: number;

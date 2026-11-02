@@ -1,7 +1,7 @@
 import { requireAuth, requireCsrfHeader } from "./auth";
 import { AUTO_PLATFORMS, PLATFORMS, type AccountRow, type Env, type Platform } from "./env";
 import { renderPage } from "./page";
-import { diagnoseInstagram, syncAccount, syncAll, todayKst, writeSnapshot } from "./sync";
+import { diagnoseFacebook, diagnoseInstagram, syncAccount, syncAll, todayKst, writeSnapshot } from "./sync";
 
 const json = (data: unknown, status = 200): Response =>
   new Response(JSON.stringify(data), {
@@ -110,6 +110,7 @@ async function createAccount(request: Request, env: Env): Promise<Response> {
   const externalId = cleanStr(b.external_id, 200);
   const token = cleanStr(b.token, 2000);
   if (platform === "youtube" && !externalId) return bad("YouTube 는 채널 ID 또는 @핸들이 필요합니다.");
+  if (platform === "facebook" && !token) return bad("Facebook 은 페이지 액세스 토큰이 필요합니다.");
   if (platform === "instagram" && !token) return bad("Instagram 은 액세스 토큰이 필요합니다.");
   if (platform === "instagram" && !token!.startsWith("IGAA") && !externalId) return bad("EAA 토큰은 IG 사용자 ID 도 필요합니다(IGAA 토큰은 비워도 됨).");
 
@@ -135,6 +136,7 @@ async function updateAccount(request: Request, env: Env, id: number): Promise<Re
   const token = cleanStr(b.token, 2000) ?? acc.token;
   const manualTotal = "manual_total" in b ? cleanCount(b.manual_total) : acc.manual_total;
   if (acc.platform === "youtube" && !externalId) return bad("YouTube 는 채널 ID 또는 @핸들이 필요합니다.");
+  if (acc.platform === "facebook" && !token) return bad("Facebook 은 페이지 액세스 토큰이 필요합니다.");
   if (acc.platform === "instagram" && !token) return bad("Instagram 은 액세스 토큰이 필요합니다.");
   if (acc.platform === "instagram" && !token!.startsWith("IGAA") && !externalId) return bad("EAA 토큰은 IG 사용자 ID 도 필요합니다(IGAA 토큰은 비워도 됨).");
 
@@ -241,9 +243,9 @@ export default {
     if ((g = pathname.match(/^\/api\/accounts\/(\d+)\/sync$/)) && m === "POST") return syncOne(env, Number(g[1]));
     if ((g = pathname.match(/^\/api\/accounts\/(\d+)\/diagnose$/)) && m === "GET") {
       const acc = await getAccount(env, Number(g[1]));
-      if (!acc || acc.platform !== "instagram") return bad("Instagram 계정이 아닙니다.", 404);
+      if (!acc || (acc.platform !== "instagram" && acc.platform !== "facebook")) return bad("Instagram/Facebook 계정이 아닙니다.", 404);
       try {
-        return json(await diagnoseInstagram(acc));
+        return json(acc.platform === "instagram" ? await diagnoseInstagram(acc) : await diagnoseFacebook(acc));
       } catch (e) {
         return bad(e instanceof Error ? e.message : String(e), 502);
       }

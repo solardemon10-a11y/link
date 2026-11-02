@@ -175,10 +175,99 @@ export async function diagnoseInstagram(acc: AccountRow): Promise<unknown> {
   return { token종류: igLogin ? "IGAA(Instagram 로그인)" : "EAA(페이스북 로그인)", api버전: GRAPH_VERSION, 영상: items };
 }
 
+// --------------------------------------------------------------- Facebook
+// 페이스북 "페이지"의 영상·릴스 조회수. 페이지 액세스 토큰(EAA)이 필요하고,
+// external_id = 페이지 ID(페이지 토큰이면 비워도 `me` 로 조회). 개인 프로필 영상은 읽을 수 없다.
+export async function fetchFacebook(acc: AccountRow): Promise<FetchedVideo[]> {
+  const pageId = (acc.external_id ?? "").trim();
+  const token = (acc.token ?? "").trim();
+  if (!token) throw new Error("페이지 액세스 토큰이 필요합니다.");
+  const secrets = [token];
+  const owner = pageId ? encodeURIComponent(pageId) : "me";
+  const build = (edge: string, fields: string): string => {
+    const u = new URL(`https://graph.facebook.com/${GRAPH_VERSION}/${owner}/${edge}`);
+    u.searchParams.set("fields", fields);
+    u.searchParams.set("limit", "25");
+    u.searchParams.set("access_token", token);
+    return u.toString();
+  };
+  const toVideo = (v: any): FetchedVideo => {
+    const link = v.permalink_url ? String(v.permalink_url) : null;
+    return {
+      external_id: String(v.id),
+      title: String(v.title ?? v.description ?? "").split("\n")[0].slice(0, 120),
+      url: link ? (link.startsWith("http") ? link : "https://www.facebook.com" + link) : null,
+      published_at: v.created_time ?? null,
+      views: num(v.views),
+      likes: null,
+      comments: null,
+    };
+  };
+
+  const out = new Map<string, FetchedVideo>();
+  const videos = await getJson(build("videos", "id,title,description,created_time,permalink_url,views"), secrets);
+  for (const v of videos.data ?? []) out.set(String(v.id), toVideo(v));
+  try {
+    const reels = await getJson(build("video_reels", "id,description,created_time,permalink_url,views"), secrets);
+    for (const v of reels.data ?? []) out.set(String(v.id), toVideo(v));
+  } catch {
+    // 릴스 목록을 못 읽어도 일반 영상은 보여준다
+  }
+  const list = [...out.values()];
+  if (list.length > 0 && list.every((v) => v.views === null)) {
+    throw new Error("영상은 찾았지만 조회수(views)를 읽지 못했습니다. '진단' 버튼 결과를 확인하세요.");
+  }
+  return list;
+}
+
+/** 조회수가 이상할 때: 영상 몇 개에 대해 여러 지표를 하나씩 호출해 값/오류를 그대로 돌려준다(토큰 제외). */
+export async function diagnoseFacebook(acc: AccountRow): Promise<unknown> {
+  const pageId = (acc.external_id ?? "").trim();
+  const token = (acc.token ?? "").trim();
+  if (!token) throw new Error("페이지 액세스 토큰이 필요합니다.");
+  const secrets = [token];
+  const owner = pageId ? encodeURIComponent(pageId) : "me";
+  const base = `https://graph.facebook.com/${GRAPH_VERSION}`;
+  const tryGet = async (url: URL): Promise<unknown> => {
+    try {
+      return await getJson(url.toString(), secrets);
+    } catch (e) {
+      return "오류: " + (e instanceof Error ? e.message : String(e));
+    }
+  };
+  const listUrl = (edge: string): URL => {
+    const u = new URL(`${base}/${owner}/${edge}`);
+    u.searchParams.set("fields", "id,created_time,permalink_url,views");
+    u.searchParams.set("limit", "3");
+    u.searchParams.set("access_token", token);
+    return u;
+  };
+  const metrics = ["total_video_views", "post_video_views", "blue_reels_play_count", "fb_reels_total_plays"];
+  const describe = async (edge: string) => {
+    const res: any = await tryGet(listUrl(edge));
+    if (typeof res === "string") return res;
+    return Promise.all(
+      (res.data ?? []).map(async (v: any) => {
+        const m: Record<string, unknown> = {};
+        for (const metric of metrics) {
+          const u = new URL(`${base}/${encodeURIComponent(v.id)}/video_insights`);
+          u.searchParams.set("metric", metric);
+          u.searchParams.set("access_token", token);
+          const r: any = await tryGet(u);
+          m[metric] = typeof r === "string" ? r : (r?.data?.[0]?.values?.[0]?.value ?? r?.data?.[0] ?? null);
+        }
+        return { 올린날: v.created_time, 링크: v.permalink_url, views필드: v.views ?? null, 지표별_값: m };
+      }),
+    );
+  };
+  return { api버전: GRAPH_VERSION, 일반영상: await describe("videos"), 릴스: await describe("video_reels") };
+}
+
 // --------------------------------------------------------------- 공통 진입점
 /** 한 계정을 수집해 DB 에 반영. 실패해도 throw 하지 않고 last_error 에 기록. */
 export async function syncAccount(env: Env, acc: AccountRow): Promise<{ ok: boolean; count: number; error?: string }> {
   const db = env.views_db;
+  await db.prepare("UPDATE accounts SET last_attempt_at = datetime('now') WHERE id = ?").bind(acc.id).run();
   try {
     let fetched: FetchedVideo[];
     if (acc.platform === "youtube") {
@@ -186,6 +275,8 @@ export async function syncAccount(env: Env, acc: AccountRow): Promise<{ ok: bool
       fetched = await fetchYoutube(acc, env.YOUTUBE_API_KEY);
     } else if (acc.platform === "instagram") {
       fetched = await fetchInstagram(acc);
+    } else if (acc.platform === "facebook") {
+      fetched = await fetchFacebook(acc);
     } else {
       throw new Error("이 플랫폼은 자동 수집을 지원하지 않습니다(수동 입력).");
     }
@@ -216,12 +307,25 @@ export async function syncAccount(env: Env, acc: AccountRow): Promise<{ ok: bool
   }
 }
 
+// 워커 한 번 실행당 외부 호출 한도(무료 50)를 넘지 않도록 계정별 예상 호출 수로 예산을 잡는다.
+const SYNC_COST: Record<string, number> = { youtube: 10, instagram: 27, facebook: 4 };
+const SYNC_BUDGET = 45;
+
+/** 자동 수집: 가장 오래 시도하지 않은 계정부터, 예산이 허용하는 만큼만. 나머지는 다음 시간에 처리된다. */
 export async function syncAll(env: Env): Promise<void> {
   const { results } = await env.views_db
-    .prepare("SELECT * FROM accounts WHERE platform IN ('youtube','instagram')")
+    .prepare(
+      `SELECT * FROM accounts WHERE platform IN ('youtube','instagram','facebook')
+       ORDER BY (last_attempt_at IS NOT NULL), last_attempt_at ASC, id ASC`,
+    )
     .all<AccountRow>();
-  // 순차 실행 — 워커 서브리퀘스트 한도를 호출 한 번에 몰아 쓰지 않기 위해
-  for (const acc of results) await syncAccount(env, acc);
+  let budget = SYNC_BUDGET;
+  for (const acc of results) {
+    const cost = SYNC_COST[acc.platform] ?? 5;
+    if (cost > budget) continue;
+    budget -= cost;
+    await syncAccount(env, acc); // 순차 실행
+  }
 }
 
 // ----------------------------------------------------------------- 스냅샷
@@ -235,7 +339,7 @@ export async function writeSnapshot(db: D1Database, accountId: number): Promise<
     .prepare(
       `INSERT INTO account_snapshots (account_id, day, views)
        SELECT a.id, ?2,
-         CASE WHEN a.platform IN ('youtube','instagram') THEN COALESCE((SELECT SUM(views) FROM videos WHERE account_id = a.id), 0)
+         CASE WHEN a.platform IN ('youtube','instagram','facebook') THEN COALESCE((SELECT SUM(views) FROM videos WHERE account_id = a.id), 0)
               ELSE COALESCE(a.manual_total, (SELECT SUM(views) FROM videos WHERE account_id = a.id), 0) END
        FROM accounts a WHERE a.id = ?1
        ON CONFLICT(account_id, day) DO UPDATE SET views = excluded.views`,

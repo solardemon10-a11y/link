@@ -184,7 +184,7 @@ function accRow(a){
     acts.push(h("button",{class:"sm",onclick:function(){ setTotal(a); }},"총 조회수"));
     acts.push(h("button",{class:"sm",onclick:function(){ openVideoDialog(a); }},"영상 추가"));
   }
-  if (a.platform==="instagram") acts.push(h("button",{class:"sm",onclick:function(){ openDiagnose(a); }},"진단"));
+  if (a.platform==="instagram"||a.platform==="facebook") acts.push(h("button",{class:"sm",onclick:function(){ openDiagnose(a); }},"진단"));
   acts.push(h("button",{class:"sm",onclick:function(){ openEditDialog(a); }},"수정"));
   acts.push(h("button",{class:"sm danger",onclick:function(){ delAccount(a); }},"삭제"));
   return h("tr",{"data-id":a.id, class:"click"+(a.id===state.account?" sel":""), onclick:function(){ state.account = (state.account===a.id ? null : a.id); render(); }},[
@@ -264,7 +264,7 @@ function val(form,name){ return form.elements[name].value; }
 function openDiagnose(a){
   var dlg = h("dialog",{});
   var ta = h("textarea",{readonly:"readonly",rows:"16",style:"width:100%;font:12px/1.4 monospace;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px"},"불러오는 중…");
-  dlg.appendChild(h("h2",{style:"margin-top:0"},"Instagram 진단 — "+a.label));
+  dlg.appendChild(h("h2",{style:"margin-top:0"},"진단 — "+PLAT[a.platform]+" · "+a.label));
   dlg.appendChild(h("div",{class:"mut"},"최근 영상 4개의 지표별 값입니다. 토큰은 포함되지 않습니다. 전체 선택(Ctrl+A) 후 복사해서 알려 주세요."));
   dlg.appendChild(ta);
   dlg.appendChild(h("div",{class:"row"},[h("button",{type:"button",onclick:function(){dlg.close();}},"닫기")]));
@@ -280,6 +280,9 @@ function openEditDialog(a){
   else if (a.platform==="instagram") {
     kids = kids.concat(fieldV("액세스 토큰","token","password","바꿀 때만 입력 (비우면 기존 유지)",""));
     kids = kids.concat(fieldV("IG 사용자 ID (숫자) — IGAA 토큰이면 비워도 됨","external_id","text","",a.external_id));
+  } else if (a.platform==="facebook") {
+    kids = kids.concat(fieldV("페이지 액세스 토큰","token","password","바꿀 때만 입력 (비우면 기존 유지)",""));
+    kids = kids.concat(fieldV("페이지 ID (숫자) — 페이지 토큰이면 비워도 됨","external_id","text","",a.external_id));
   } else kids = kids.concat(fieldV("현재 총 조회수 (비우면 영상 합계 사용)","manual_total","text","",a.manual_total));
   kids.push(h("div",{class:"mut"},"플랫폼은 바꿀 수 없습니다. 바꾸려면 삭제 후 다시 추가하세요."));
   openDialog("계정 수정 — "+PLAT[a.platform], kids, function(form,dlg){
@@ -302,6 +305,7 @@ function openAccountDialog(){
     var kids = [];
     if (p==="youtube") { kids = kids.concat(field("채널 ID (UC...) 또는 @핸들","external_id","text","@mychannel")); kids.push(h("div",{class:"mut"},"공개 조회수만 읽습니다. 서버에 YOUTUBE_API_KEY 가 등록돼 있어야 합니다.")); }
     else if (p==="instagram") { kids = kids.concat(field("액세스 토큰","token","password","IGAA... 또는 EAA...")); kids = kids.concat(field("IG 사용자 ID (숫자) — IGAA 토큰이면 비워도 됨","external_id","text")); kids.push(h("div",{class:"mut"},"비즈니스/크리에이터 계정 + Meta 앱 토큰이 필요합니다. 저장 후 화면에는 다시 표시되지 않습니다.")); }
+    else if (p==="facebook") { kids = kids.concat(field("페이지 액세스 토큰","token","password","EAA...")); kids = kids.concat(field("페이지 ID (숫자) — 페이지 토큰이면 비워도 됨","external_id","text")); kids.push(h("div",{class:"mut"},"페이스북 '페이지'에 올린 영상·릴스만 읽을 수 있습니다(개인 프로필 제외). 저장 후 토큰은 다시 표시되지 않습니다.")); }
     else { kids = kids.concat(field("현재 총 조회수 (선택, 나중에 입력 가능)","manual_total","text")); kids.push(h("div",{class:"mut"},"이 플랫폼은 자동 수집을 지원하지 않아 직접 입력합니다.")); }
     extra.replaceChildren.apply(extra, kids);
   }
