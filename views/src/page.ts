@@ -135,6 +135,7 @@ function accRow(a){
     acts.push(h("button",{class:"sm",onclick:function(){ setTotal(a); }},"총 조회수"));
     acts.push(h("button",{class:"sm",onclick:function(){ openVideoDialog(a); }},"영상 추가"));
   }
+  acts.push(h("button",{class:"sm",onclick:function(){ openEditDialog(a); }},"수정"));
   acts.push(h("button",{class:"sm danger",onclick:function(){ delAccount(a); }},"삭제"));
   return h("tr",{class:"click"+(a.id===state.account?" sel":""), onclick:function(){ state.account = (state.account===a.id ? null : a.id); render(); }},[
     h("td",{},PLAT[a.platform]),
@@ -209,6 +210,25 @@ function openDialog(title, bodyKids, onSubmit){
 }
 function val(form,name){ return form.elements[name].value; }
 
+function fieldV(label, name, type, ph, value){
+  return [h("label",{for:name},label), h("input",{id:name,name:name,type:type||"text",placeholder:ph||"",autocomplete:"off",value:value==null?"":String(value)})];
+}
+function openEditDialog(a){
+  var kids = [].concat(fieldV("이름","label","text","",a.label), fieldV("핸들 (표시용)","handle","text","@name",a.handle));
+  if (a.platform==="youtube") kids = kids.concat(fieldV("채널 ID (UC...) 또는 @핸들","external_id","text","@mychannel",a.external_id));
+  else if (a.platform==="instagram") {
+    kids = kids.concat(fieldV("IG 사용자 ID (숫자)","external_id","text","",a.external_id));
+    kids = kids.concat(fieldV("액세스 토큰","token","password","바꿀 때만 입력 (비우면 기존 유지)",""));
+  } else kids = kids.concat(fieldV("현재 총 조회수 (비우면 영상 합계 사용)","manual_total","text","",a.manual_total));
+  kids.push(h("div",{class:"mut"},"플랫폼은 바꿀 수 없습니다. 바꾸려면 삭제 후 다시 추가하세요."));
+  openDialog("계정 수정 — "+PLAT[a.platform], kids, function(form,dlg){
+    var body = {label:val(form,"label"), handle:val(form,"handle")};
+    if (form.elements.external_id) body.external_id = val(form,"external_id").trim();
+    if (form.elements.token) body.token = val(form,"token").trim();
+    if (form.elements.manual_total) body.manual_total = val(form,"manual_total").replace(/[,\s]/g,"");
+    api("PUT","/api/accounts/"+a.id,body).then(function(){ dlg.close(); return load(); }).catch(function(e){ alert(e.message); });
+  });
+}
 function openAccountDialog(){
   var sel = h("select",{id:"platform",name:"platform"}, Object.keys(PLAT).map(function(k){ return h("option",{value:k},PLAT[k]); }));
   var extra = h("div",{});

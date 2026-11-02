@@ -133,6 +133,8 @@ async function updateAccount(request: Request, env: Env, id: number): Promise<Re
   // 토큰은 새 값이 올 때만 교체(빈 값이면 기존 유지) — 화면에 토큰을 다시 보여주지 않기 때문
   const token = cleanStr(b.token, 2000) ?? acc.token;
   const manualTotal = "manual_total" in b ? cleanCount(b.manual_total) : acc.manual_total;
+  if (acc.platform === "youtube" && !externalId) return bad("YouTube 는 채널 ID 또는 @핸들이 필요합니다.");
+  if (acc.platform === "instagram" && (!externalId || !token)) return bad("Instagram 은 IG 사용자 ID 와 액세스 토큰이 필요합니다.");
 
   await env.views_db
     .prepare("UPDATE accounts SET label=?, handle=?, external_id=?, token=?, manual_total=? WHERE id=?")
