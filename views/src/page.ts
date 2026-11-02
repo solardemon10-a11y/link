@@ -29,6 +29,11 @@ tr:last-child td{border-bottom:0}
 th{font-size:12px;color:var(--mut);font-weight:500;white-space:nowrap}
 th.s{cursor:pointer}
 td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.grip{cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;color:var(--mut);font-size:20px;line-height:1;padding:4px 8px;display:inline-block}
+.grip:active{cursor:grabbing}
+tr.drag td{opacity:.45}
+tr.over-top td{box-shadow:inset 0 3px 0 var(--acc)}
+tr.over-bottom td{box-shadow:inset 0 -3px 0 var(--acc)}
 tr.click{cursor:pointer}
 tr.click:hover td{background:var(--bg)}
 tr.sel td{background:var(--bg);box-shadow:inset 0 1px 0 var(--acc),inset 0 -1px 0 var(--acc)}
@@ -97,8 +102,8 @@ function render(){
   var accTable;
   if (!accsAll.length) accTable = h("div",{class:"empty"},"계정이 없습니다. 오른쪽 위 \"+ 계정 추가\"로 시작하세요.");
   else accTable = h("table",{},[
-    h("thead",{},h("tr",{},[th("플랫폼"),th("계정"),th("조회수","n"),th("오늘","n"),th("7일","n"),th("영상","n"),th("수집 상태"),th("")])),
-    h("tbody",{}, accsAll.map(accRow))
+    h("thead",{},h("tr",{},[th(""),th("플랫폼"),th("계정"),th("조회수","n"),th("오늘","n"),th("7일","n"),th("영상","n"),th("수집 상태"),th("")])),
+    attachDrag(h("tbody",{}, accsAll.map(accRow)))
   ]);
 
   var vidTable;
@@ -120,6 +125,50 @@ function vidHeading(sel, n){
     h("button",{class:"sm",onclick:function(){ state.account=null; render(); }},"← 전체 보기")
   ]);
 }
+// ---- 드래그로 순서 바꾸기 (마우스·터치 공통: pointer 이벤트)
+function attachDrag(tbody){
+  var dragRow = null, overRow = null, after = false;
+  function clear(){ if (overRow) overRow.classList.remove("over-top","over-bottom"); overRow = null; }
+  tbody.addEventListener("pointerdown", function(e){
+    var g = e.target.closest && e.target.closest(".grip"); if (!g) return;
+    dragRow = g.closest("tr"); dragRow.classList.add("drag");
+    try { g.setPointerCapture(e.pointerId); } catch(_) {}
+    e.preventDefault();
+  });
+  tbody.addEventListener("pointermove", function(e){
+    if (!dragRow) return;
+    clear();
+    var rows = tbody.querySelectorAll("tr");
+    for (var i=0;i<rows.length;i++){
+      var r = rows[i], b = r.getBoundingClientRect();
+      if (r!==dragRow && e.clientY>=b.top && e.clientY<=b.bottom){
+        after = e.clientY > b.top + b.height/2; overRow = r;
+        r.classList.add(after ? "over-bottom" : "over-top"); break;
+      }
+    }
+  });
+  function finish(save){
+    if (!dragRow) return;
+    var row = dragRow, target = overRow, below = after;
+    dragRow.classList.remove("drag"); clear(); dragRow = null;
+    if (!save || !target) return;
+    tbody.insertBefore(row, below ? target.nextSibling : target);
+    var shown = [].map.call(tbody.querySelectorAll("tr"), function(tr){ return Number(tr.getAttribute("data-id")); });
+    saveOrder(shown);
+  }
+  tbody.addEventListener("pointerup", function(){ finish(true); });
+  tbody.addEventListener("pointercancel", function(){ finish(false); });
+  return tbody;
+}
+// 필터로 일부만 보이는 경우에도 안 보이는 계정의 자리는 그대로 두고, 보이는 것들끼리만 순서를 바꾼다
+function saveOrder(shownIds){
+  var all = state.data.accounts.map(function(a){ return a.id; });
+  var slots = [];
+  all.forEach(function(id,i){ if (shownIds.indexOf(id) >= 0) slots.push(i); });
+  var next = all.slice();
+  slots.forEach(function(pos,k){ next[pos] = shownIds[k]; });
+  api("POST","/api/accounts/reorder",{ids:next}).then(load).catch(function(e){ alert("순서 저장 실패: "+e.message); load(); });
+}
 function kpi(l,v){ return h("div",{class:"kpi"},[h("div",{class:"l"},l),h("div",{class:"v"},String(v))]); }
 function th(t,c){ return h("th",{class:c||""},t); }
 
@@ -138,7 +187,8 @@ function accRow(a){
   if (a.platform==="instagram") acts.push(h("button",{class:"sm",onclick:function(){ openDiagnose(a); }},"진단"));
   acts.push(h("button",{class:"sm",onclick:function(){ openEditDialog(a); }},"수정"));
   acts.push(h("button",{class:"sm danger",onclick:function(){ delAccount(a); }},"삭제"));
-  return h("tr",{class:"click"+(a.id===state.account?" sel":""), onclick:function(){ state.account = (state.account===a.id ? null : a.id); render(); }},[
+  return h("tr",{"data-id":a.id, class:"click"+(a.id===state.account?" sel":""), onclick:function(){ state.account = (state.account===a.id ? null : a.id); render(); }},[
+    h("td",{onclick:function(e){ e.stopPropagation(); }},h("span",{class:"grip",title:"끌어서 순서 바꾸기"},"⠿")),
     h("td",{},PLAT[a.platform]),
     h("td",{},[h("div",{},a.label), a.handle?h("div",{class:"mut"},a.handle):""]),
     h("td",{class:"n"},fmt(a.views)),

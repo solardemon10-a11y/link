@@ -57,7 +57,7 @@ async function handleSummary(env: Env): Promise<Response> {
                 (a.token IS NOT NULL AND a.token != '') AS has_token,
                 COUNT(v.id) AS video_count, COALESCE(SUM(v.views), 0) AS video_sum
          FROM accounts a LEFT JOIN videos v ON v.account_id = a.id
-         GROUP BY a.id ORDER BY a.platform, a.label`,
+         GROUP BY a.id ORDER BY a.sort_order, a.id`,
       )
       .all<any>(),
     db
@@ -114,7 +114,7 @@ async function createAccount(request: Request, env: Env): Promise<Response> {
   if (platform === "instagram" && !token!.startsWith("IGAA") && !externalId) return bad("EAA 토큰은 IG 사용자 ID 도 필요합니다(IGAA 토큰은 비워도 됨).");
 
   const res = await env.views_db
-    .prepare("INSERT INTO accounts (platform, label, handle, external_id, token, manual_total) VALUES (?,?,?,?,?,?)")
+    .prepare("INSERT INTO accounts (platform, label, handle, external_id, token, manual_total, sort_order) VALUES (?,?,?,?,?,?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM accounts))")
     .bind(platform, label, cleanStr(b.handle, 100), externalId, isAuto(platform) ? token : null, cleanCount(b.manual_total))
     .run();
   const id = res.meta.last_row_id;
@@ -143,6 +143,19 @@ async function updateAccount(request: Request, env: Env, id: number): Promise<Re
     .bind(label, handle, externalId, isAuto(acc.platform) ? token : null, isAuto(acc.platform) ? null : manualTotal, id)
     .run();
   await writeSnapshot(env.views_db, id);
+  return json({ ok: true });
+}
+
+/** 드래그로 바꾼 계정 순서 저장. ids = 화면에 보이는 전체 계정 id 를 새 순서대로 */
+async function reorderAccounts(request: Request, env: Env): Promise<Response> {
+  const b = await readBody(request);
+  const ids = Array.isArray(b.ids) ? b.ids.map(Number) : [];
+  if (!ids.length || ids.length > 500 || ids.some((n) => !Number.isInteger(n) || n <= 0) || new Set(ids).size !== ids.length) {
+    return bad("잘못된 순서입니다.");
+  }
+  await env.views_db.batch(
+    ids.map((id, i) => env.views_db.prepare("UPDATE accounts SET sort_order = ? WHERE id = ?").bind(i + 1, id)),
+  );
   return json({ ok: true });
 }
 
@@ -218,6 +231,7 @@ export default {
     }
     if (m === "GET" && pathname === "/api/summary") return handleSummary(env);
     if (m === "POST" && pathname === "/api/accounts") return createAccount(request, env);
+    if (m === "POST" && pathname === "/api/accounts/reorder") return reorderAccounts(request, env);
 
     let g: RegExpMatchArray | null;
     if ((g = pathname.match(/^\/api\/accounts\/(\d+)$/))) {
