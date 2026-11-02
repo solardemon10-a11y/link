@@ -1,0 +1,17 @@
+{
+  "name": "views-dashboard",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "migrate:local": "wrangler d1 migrations apply views-db --local",
+    "migrate:remote": "wrangler d1 migrations apply views-db --remote",
+    "typecheck": "wrangler types && tsc --noEmit",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.2",
+    "wrangler": "^4.127.1"
+  }
+}

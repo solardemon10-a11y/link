@@ -1,16 +1,17 @@
 /**
- * 조회수 통합 대시보드 — 링크 서비스(`link` 워커)와 완전히 분리된 별도 워커.
- * 실행/배포는 저장소 루트에서 `npm run views:*` 스크립트로 한다.
+ * 조회수 통합 대시보드 — 독립 프로젝트 (링크 서비스와 무관한 별도 워커/DB).
  *
- * 최초 1회:
- *   npx wrangler d1 create views-db        → 출력된 database_id 를 아래에 붙여넣기
- *   npm run views:migrate:remote
- *   npx wrangler secret put ADMIN_PASSWORD -c views/wrangler.jsonc
- *   npx wrangler secret put YOUTUBE_API_KEY -c views/wrangler.jsonc   (YouTube 쓸 때)
- *   npm run views:deploy
+ * 최초 1회 (이 폴더에서):
+ *   npm install
+ *   npm run migrate:remote
+ *   npx wrangler secret put ADMIN_PASSWORD
+ *   npx wrangler secret put YOUTUBE_API_KEY      (YouTube 쓸 때)
+ *   npm run deploy
+ *
+ * 로컬 테스트: .dev.vars 에 ALLOW_INSECURE_ADMIN="true" 를 넣고 npm run dev
  */
 {
-  "$schema": "../node_modules/wrangler/config-schema.json",
+  "$schema": "node_modules/wrangler/config-schema.json",
   "name": "views",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-25",
@@ -20,7 +21,7 @@
     {
       "binding": "views_db",
       "database_name": "views-db",
-      "database_id": "REPLACE_WITH_ID_FROM_d1_create",
+      "database_id": "72208e89-aa2c-43f6-8941-475a3fc7f13f",
       "migrations_dir": "migrations"
     }
   ],
