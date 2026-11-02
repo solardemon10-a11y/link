@@ -138,3 +138,14 @@ fetch(request, env, ctx)
 - 관리자 페이지 디자인은 아직 공개 페이지 톤으로 안 맞춤(구 스타일).
 - 짧은 도메인 미적용 (workers.dev 주소 사용 중). Cloudflare Registrar + Custom Domain.
 - 다크모드 색은 조정 대상 밖(고정). 관리자 색 조정 기능은 미구현(`appearance` JSON 컬럼 방식으로 확장 가능).
+
+## 8. 조회수 통합 대시보드 (`views/`) — 링크 워커와 별도
+
+- 별도 워커 `views` + 별도 D1 `views-db`. 링크 서비스(`src/`)와 코드·DB·시크릿 모두 분리.
+- 계정(YouTube/Instagram/TikTok/Facebook/Threads/X)별 영상 조회수를 한 화면에 합산 + 오늘/7일 증가.
+- **자동 수집**: YouTube(공개 Data API, `YOUTUBE_API_KEY`만 필요) · Instagram(Graph API, 계정별 토큰을 D1 `accounts.token`에 저장, API로는 절대 반환 안 함). 6시간 cron + 화면 새로고침 버튼.
+- **수동 입력**: TikTok·Facebook·Threads·X·기타 — 계정 총 조회수 직접 입력 또는 영상별 입력.
+- 인증: Basic Auth(`ADMIN_PASSWORD`, 아이디 무시) fail-closed, 상태변경 요청은 `X-Requested-With` 헤더 필수(CSRF).
+- 명령: `npm run views:dev` · `views:migrate:local|remote` · `views:deploy`. 최초 배포 절차는 `views/wrangler.jsonc` 상단 주석.
+- 주의: 무료 플랜은 요청당 외부 호출 50개 제한 → cron 은 계정이 많으면(YouTube ~15개↑) 일부가 다음 주기로 밀릴 수 있음. 화면의 "전체 새로고침"은 계정별로 나눠 호출하므로 안전.
+- Instagram 은 코드만 작성, 실제 계정으로는 **미검증**(토큰 필요). `GRAPH_VERSION`(`views/src/sync.ts`)은 Meta가 폐기하면 올릴 것.

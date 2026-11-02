@@ -1,0 +1,30 @@
+/**
+ * 조회수 통합 대시보드 — 링크 서비스(`link` 워커)와 완전히 분리된 별도 워커.
+ * 실행/배포는 저장소 루트에서 `npm run views:*` 스크립트로 한다.
+ *
+ * 최초 1회:
+ *   npx wrangler d1 create views-db        → 출력된 database_id 를 아래에 붙여넣기
+ *   npm run views:migrate:remote
+ *   npx wrangler secret put ADMIN_PASSWORD -c views/wrangler.jsonc
+ *   npx wrangler secret put YOUTUBE_API_KEY -c views/wrangler.jsonc   (YouTube 쓸 때)
+ *   npm run views:deploy
+ */
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "views",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-25",
+  "observability": { "enabled": true },
+
+  "d1_databases": [
+    {
+      "binding": "views_db",
+      "database_name": "views-db",
+      "database_id": "REPLACE_WITH_ID_FROM_d1_create",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // 6시간마다 자동 수집 (UTC). 수동 새로고침 버튼도 있음.
+  "triggers": { "crons": ["0 */6 * * *"] }
+}

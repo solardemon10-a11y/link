@@ -9,7 +9,11 @@
     "test": "vitest",
     "cf-typegen": "wrangler types",
     "migrate:local": "wrangler d1 migrations apply multilink-db --local",
-    "migrate:remote": "wrangler d1 migrations apply multilink-db --remote"
+    "migrate:remote": "wrangler d1 migrations apply multilink-db --remote",
+    "views:dev": "wrangler dev -c views/wrangler.jsonc",
+    "views:deploy": "wrangler deploy -c views/wrangler.jsonc",
+    "views:migrate:local": "wrangler d1 migrations apply views-db --local -c views/wrangler.jsonc",
+    "views:migrate:remote": "wrangler d1 migrations apply views-db --remote -c views/wrangler.jsonc"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.0.0",
