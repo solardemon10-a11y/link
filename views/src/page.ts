@@ -197,7 +197,7 @@ function delVideo(v){
 }
 
 // ---- 다이얼로그
-function field(label, name, type, ph){ return [h("label",{for:name},label), h("input",{id:name,name:name,type:type||"text",placeholder:ph||"",autocomplete:"off"})]; }
+function field(label, name, type, ph){ return [h("label",{for:name},label), h("input",{id:name,name:name,type:type||"text",placeholder:ph||"",autocomplete:type==="password"?"new-password":"off"})]; }
 function openDialog(title, bodyKids, onSubmit){
   var dlg = h("dialog",{});
   var form = h("form",{method:"dialog"},[h("h2",{style:"margin-top:0"},title)].concat(bodyKids,[
@@ -211,7 +211,7 @@ function openDialog(title, bodyKids, onSubmit){
 function val(form,name){ return form.elements[name].value; }
 
 function fieldV(label, name, type, ph, value){
-  return [h("label",{for:name},label), h("input",{id:name,name:name,type:type||"text",placeholder:ph||"",autocomplete:"off",value:value==null?"":String(value)})];
+  return [h("label",{for:name},label), h("input",{id:name,name:name,type:type||"text",placeholder:ph||"",autocomplete:type==="password"?"new-password":"off",value:value==null?"":String(value)})];
 }
 function openEditDialog(a){
   var kids = [].concat(fieldV("이름","label","text","",a.label), fieldV("핸들 (표시용)","handle","text","@name",a.handle));
@@ -226,7 +226,11 @@ function openEditDialog(a){
     if (form.elements.external_id) body.external_id = val(form,"external_id").trim();
     if (form.elements.token) body.token = val(form,"token").trim();
     if (form.elements.manual_total) body.manual_total = val(form,"manual_total").replace(/[,\s]/g,"");
-    api("PUT","/api/accounts/"+a.id,body).then(function(){ dlg.close(); return load(); }).catch(function(e){ alert(e.message); });
+    api("PUT","/api/accounts/"+a.id,body).then(function(){
+      dlg.close();
+      if (!a.auto) return null;
+      return api("POST","/api/accounts/"+a.id+"/sync").catch(function(){});  // 오류는 수집 상태 칸에 표시됨
+    }).then(load).catch(function(e){ alert(e.message); });
   });
 }
 function openAccountDialog(){
