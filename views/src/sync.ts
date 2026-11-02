@@ -131,6 +131,50 @@ export async function fetchInstagram(acc: AccountRow): Promise<FetchedVideo[]> {
   return results;
 }
 
+// ---------------------------------------------------------- Instagram 진단
+// 조회수가 앱과 다를 때 원인을 찾기 위한 도구: 최근 영상 몇 개에 대해 여러 지표를 하나씩 호출해
+// 각각의 값(또는 오류)을 그대로 돌려준다. 토큰은 응답/오류 어디에도 포함하지 않는다.
+export async function diagnoseInstagram(acc: AccountRow): Promise<unknown> {
+  const igId = (acc.external_id ?? "").trim();
+  const token = (acc.token ?? "").trim();
+  if (!token) throw new Error("액세스 토큰이 필요합니다.");
+  const igLogin = token.startsWith("IGAA");
+  if (!igLogin && !igId) throw new Error("IG 사용자 ID 가 필요합니다.");
+  const secrets = [token];
+  const host = igLogin ? "https://graph.instagram.com" : "https://graph.facebook.com";
+  const owner = igLogin ? "me" : encodeURIComponent(igId);
+
+  const list = new URL(`${host}/${GRAPH_VERSION}/${owner}/media`);
+  list.searchParams.set("fields", "id,permalink,timestamp,media_type,media_product_type,like_count,comments_count");
+  list.searchParams.set("limit", "4");
+  list.searchParams.set("access_token", token);
+  const body = await getJson(list.toString(), secrets);
+
+  const metrics = ["views", "plays", "reach", "ig_reels_aggregated_all_plays_count", "total_interactions"];
+  const items = await Promise.all(
+    (body.data ?? []).map(async (m: any) => {
+      const result: Record<string, unknown> = {};
+      for (const metric of metrics) {
+        try {
+          const u = new URL(`${host}/${GRAPH_VERSION}/${encodeURIComponent(m.id)}/insights`);
+          u.searchParams.set("metric", metric);
+          u.searchParams.set("access_token", token);
+          const r = await getJson(u.toString(), secrets);
+          const d = r?.data?.[0];
+          result[metric] = d?.values?.[0]?.value ?? d?.total_value?.value ?? d ?? null;
+        } catch (e) {
+          result[metric] = "오류: " + (e instanceof Error ? e.message : String(e));
+        }
+      }
+      return {
+        올린날: m.timestamp, 종류: m.media_product_type + "/" + m.media_type, 링크: m.permalink,
+        좋아요: m.like_count, 댓글: m.comments_count, 지표별_값: result,
+      };
+    }),
+  );
+  return { token종류: igLogin ? "IGAA(Instagram 로그인)" : "EAA(페이스북 로그인)", api버전: GRAPH_VERSION, 영상: items };
+}
+
 // --------------------------------------------------------------- 공통 진입점
 /** 한 계정을 수집해 DB 에 반영. 실패해도 throw 하지 않고 last_error 에 기록. */
 export async function syncAccount(env: Env, acc: AccountRow): Promise<{ ok: boolean; count: number; error?: string }> {

@@ -135,6 +135,7 @@ function accRow(a){
     acts.push(h("button",{class:"sm",onclick:function(){ setTotal(a); }},"총 조회수"));
     acts.push(h("button",{class:"sm",onclick:function(){ openVideoDialog(a); }},"영상 추가"));
   }
+  if (a.platform==="instagram") acts.push(h("button",{class:"sm",onclick:function(){ openDiagnose(a); }},"진단"));
   acts.push(h("button",{class:"sm",onclick:function(){ openEditDialog(a); }},"수정"));
   acts.push(h("button",{class:"sm danger",onclick:function(){ delAccount(a); }},"삭제"));
   return h("tr",{class:"click"+(a.id===state.account?" sel":""), onclick:function(){ state.account = (state.account===a.id ? null : a.id); render(); }},[
@@ -210,6 +211,16 @@ function openDialog(title, bodyKids, onSubmit){
 }
 function val(form,name){ return form.elements[name].value; }
 
+function openDiagnose(a){
+  var dlg = h("dialog",{});
+  var ta = h("textarea",{readonly:"readonly",rows:"16",style:"width:100%;font:12px/1.4 monospace;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px"},"불러오는 중…");
+  dlg.appendChild(h("h2",{style:"margin-top:0"},"Instagram 진단 — "+a.label));
+  dlg.appendChild(h("div",{class:"mut"},"최근 영상 4개의 지표별 값입니다. 토큰은 포함되지 않습니다. 전체 선택(Ctrl+A) 후 복사해서 알려 주세요."));
+  dlg.appendChild(ta);
+  dlg.appendChild(h("div",{class:"row"},[h("button",{type:"button",onclick:function(){dlg.close();}},"닫기")]));
+  document.body.appendChild(dlg); dlg.addEventListener("close",function(){ dlg.remove(); }); dlg.showModal();
+  api("GET","/api/accounts/"+a.id+"/diagnose").then(function(r){ ta.value = JSON.stringify(r,null,2); }).catch(function(e){ ta.value = "오류: "+e.message; });
+}
 function fieldV(label, name, type, ph, value){
   return [h("label",{for:name},label), h("input",{id:name,name:name,type:type||"text",placeholder:ph||"",autocomplete:type==="password"?"new-password":"off",value:value==null?"":String(value)})];
 }

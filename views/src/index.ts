@@ -1,7 +1,7 @@
 import { requireAuth, requireCsrfHeader } from "./auth";
 import { AUTO_PLATFORMS, PLATFORMS, type AccountRow, type Env, type Platform } from "./env";
 import { renderPage } from "./page";
-import { syncAccount, syncAll, todayKst, writeSnapshot } from "./sync";
+import { diagnoseInstagram, syncAccount, syncAll, todayKst, writeSnapshot } from "./sync";
 
 const json = (data: unknown, status = 200): Response =>
   new Response(JSON.stringify(data), {
@@ -225,6 +225,15 @@ export default {
       if (m === "DELETE") return deleteAccount(env, Number(g[1]));
     }
     if ((g = pathname.match(/^\/api\/accounts\/(\d+)\/sync$/)) && m === "POST") return syncOne(env, Number(g[1]));
+    if ((g = pathname.match(/^\/api\/accounts\/(\d+)\/diagnose$/)) && m === "GET") {
+      const acc = await getAccount(env, Number(g[1]));
+      if (!acc || acc.platform !== "instagram") return bad("Instagram 계정이 아닙니다.", 404);
+      try {
+        return json(await diagnoseInstagram(acc));
+      } catch (e) {
+        return bad(e instanceof Error ? e.message : String(e), 502);
+      }
+    }
     if ((g = pathname.match(/^\/api\/accounts\/(\d+)\/videos$/)) && m === "POST") return addManualVideo(request, env, Number(g[1]));
     if ((g = pathname.match(/^\/api\/videos\/(\d+)$/))) {
       if (m === "PUT") return updateVideoViews(request, env, Number(g[1]));
